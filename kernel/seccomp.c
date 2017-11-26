@@ -19,6 +19,7 @@
 #include <linux/sched.h>
 #include <linux/seccomp.h>
 #include <linux/slab.h>
+#include <linux/syscalls.h>
 
 /* #define SECCOMP_DEBUG 1 */
 
@@ -415,6 +416,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 
 	return filter;
 fail:
+	kfree(filter);
 	return ERR_PTR(ret);
 }
 
@@ -686,6 +688,7 @@ out:
 #ifdef CONFIG_SECCOMP_FILTER
 /**
  * seccomp_set_mode_filter: internal function for setting seccomp filter
+ * @flags:  flags to change filter behavior
  * @filter: struct sock_fprog containing filter
  *
  * This function may be called repeatedly to install additional filters.
@@ -741,11 +744,34 @@ out_free:
 	return ret;
 }
 #else
-static inline long seccomp_set_mode_filter(char __user *filter)
+static inline long seccomp_set_mode_filter(unsigned int flags,
+					   const char __user *filter)
 {
 	return -EINVAL;
 }
 #endif
+
+/* Common entry point for both prctl and syscall. */
+static long do_seccomp(unsigned int op, unsigned int flags,
+		       const char __user *uargs)
+{
+	switch (op) {
+	case SECCOMP_SET_MODE_STRICT:
+		if (flags != 0 || uargs != NULL)
+			return -EINVAL;
+		return seccomp_set_mode_strict();
+	case SECCOMP_SET_MODE_FILTER:
+		return seccomp_set_mode_filter(flags, uargs);
+	default:
+		return -EINVAL;
+	}
+}
+
+SYSCALL_DEFINE3(seccomp, unsigned int, op, unsigned int, flags,
+			 const char __user *, uargs)
+{
+	return do_seccomp(op, flags, uargs);
+}
 
 /**
  * prctl_set_seccomp: configures current->seccomp.mode
@@ -756,12 +782,27 @@ static inline long seccomp_set_mode_filter(char __user *filter)
  */
 long prctl_set_seccomp(unsigned long seccomp_mode, char __user *filter)
 {
+	unsigned int op;
+	char __user *uargs;
+
 	switch (seccomp_mode) {
 	case SECCOMP_MODE_STRICT:
-		return seccomp_set_mode_strict();
+		op = SECCOMP_SET_MODE_STRICT;
+		/*
+		 * Setting strict mode through prctl always ignored filter,
+		 * so make sure it is always NULL here to pass the internal
+		 * check in do_seccomp().
+		 */
+		uargs = NULL;
+		break;
 	case SECCOMP_MODE_FILTER:
-		return seccomp_set_mode_filter(filter);
+		op = SECCOMP_SET_MODE_FILTER;
+		uargs = filter;
+		break;
 	default:
 		return -EINVAL;
 	}
+
+	/* prctl interface doesn't have flags, so they are always zero. */
+	return do_seccomp(op, 0, uargs);
 }
