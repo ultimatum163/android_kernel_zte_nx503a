@@ -471,16 +471,6 @@ int security_inode_create(struct inode *dir, struct dentry *dentry, umode_t mode
 }
 EXPORT_SYMBOL_GPL(security_inode_create);
 
-int security_inode_post_create(struct inode *dir, struct dentry *dentry,
-			       umode_t mode)
-{
-	if (unlikely(IS_PRIVATE(dir)))
-		return 0;
-	if (security_ops->inode_post_create == NULL)
-		return 0;
-	return security_ops->inode_post_create(dir, dentry, mode);
-}
-
 int security_inode_link(struct dentry *old_dentry, struct inode *dir,
 			 struct dentry *new_dentry)
 {
@@ -742,22 +732,6 @@ int security_dentry_open(struct file *file, const struct cred *cred)
 	return fsnotify_perm(file, MAY_OPEN);
 }
 
-int security_file_close(struct file *file)
-{
-	if (security_ops->file_close)
-		return security_ops->file_close(file);
-
-	return 0;
-}
-
-bool security_allow_merge_bio(struct bio *bio1, struct bio *bio2)
-{
-	if (security_ops->allow_merge_bio)
-		return security_ops->allow_merge_bio(bio1, bio2);
-
-	return true;
-}
-
 int security_task_create(unsigned long clone_flags)
 {
 	return security_ops->task_create(clone_flags);
@@ -801,11 +775,6 @@ int security_kernel_create_files_as(struct cred *new, struct inode *inode)
 int security_kernel_module_request(char *kmod_name)
 {
 	return security_ops->kernel_module_request(kmod_name);
-}
-
-int security_kernel_module_from_file(struct file *file)
-{
-	return security_ops->kernel_module_from_file(file);
 }
 
 int security_task_fix_setuid(struct cred *new, const struct cred *old,

@@ -43,9 +43,6 @@
 #include "wcdcal-hwdep.h"
 
 
-#ifdef CONFIG_SND_SOC_ES325
-#include "es325-export.h"
-#endif
 #define TAIKO_MAD_SLIMBUS_TX_PORT 12
 #define TAIKO_MAD_AUDIO_FIRMWARE_PATH "wcd9320/wcd9320_mad_audio.bin"
 #define TAIKO_VALIDATE_RX_SBPORT_RANGE(port) ((port >= 16) && (port <= 22))
@@ -57,6 +54,8 @@
 #define DAPM_MICBIAS2_EXTERNAL_STANDALONE "MIC BIAS2 External Standalone"
 #define DAPM_MICBIAS3_EXTERNAL_STANDALONE "MIC BIAS3 External Standalone"
 
+#define DAPM_MICBIAS3_EXTERNAL_STANDALONE "MIC BIAS3 External Standalone"
+
 /* RX_HPH_CNP_WG_TIME increases by 0.24ms */
 #define TAIKO_WG_TIME_FACTOR_US	240
 
@@ -64,6 +63,8 @@ static atomic_t kp_taiko_priv;
 static int spkr_drv_wrnd_param_set(const char *val,
 				   const struct kernel_param *kp);
 static int spkr_drv_wrnd = 1;
+
+static int micbias3_standalone_enabled;
 
 static struct kernel_param_ops spkr_drv_wrnd_param_ops = {
 	.set = spkr_drv_wrnd_param_set,
@@ -1063,6 +1064,50 @@ static int taiko_config_compander(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static int taiko_get_micbias3(struct snd_kcontrol *kcontrol,
+			       struct snd_ctl_elem_value *ucontrol)
+{
+
+	ucontrol->value.integer.value[0] = micbias3_standalone_enabled;
+	return 0;
+}
+
+static int taiko_set_micbias3(struct snd_kcontrol *kcontrol,
+			       struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	int value = ucontrol->value.integer.value[0];
+	struct snd_soc_dapm_widget *w;
+	int rc = 0;
+
+	pr_debug("%s: enable micbias 3 standalone %d,\n",
+		 __func__, value);
+
+	micbias3_standalone_enabled = value;
+
+	if (micbias3_standalone_enabled)
+		rc = snd_soc_dapm_force_enable_pin(&codec->dapm,
+					     DAPM_MICBIAS3_EXTERNAL_STANDALONE);
+	else {
+		/* Don't turn off mic bias 3 if the widget power is on, parallel
+		 * capture session voip/camcorder could be running, dapm will
+		 * turn it off when capture session ends.
+		*/
+		w = snd_soc_get_codec_widget(codec->card,
+						codec, "MIC BIAS3 External");
+		if ((w != NULL) && w->power)
+			goto out;
+
+		rc = snd_soc_dapm_disable_pin(&codec->dapm,
+					DAPM_MICBIAS3_EXTERNAL_STANDALONE);
+	}
+	if (!rc)
+		snd_soc_dapm_sync(&codec->dapm);
+
+out:
+	pr_debug("%s: leave ret %d\n", __func__, rc);
+	return rc;
+}
 
 
 static const char *const taiko_anc_func_text[] = {"OFF", "ON"};
@@ -1435,6 +1480,9 @@ static const struct snd_kcontrol_new taiko_snd_controls[] = {
 	SOC_ENUM_EXT("MAD Input", taiko_conn_mad_enum,
 			taiko_mad_input_get, taiko_mad_input_put),
 
+	SOC_SINGLE_EXT("Mic Bias3 Enable", SND_SOC_NOPM, 0, 1, 0,
+		       taiko_get_micbias3, taiko_set_micbias3),
+
 };
 
 static int taiko_pa_gain_get(struct snd_kcontrol *kcontrol,
@@ -1565,8 +1613,13 @@ static int taiko_hph_impedance_get(struct snd_kcontrol *kcontrol,
 	mc = (struct soc_multi_mixer_control *)(kcontrol->private_value);
 
 	hphr = mc->shift;
+	pr_debug("%s: taiko_priv: %p\n", __func__, priv);
+#ifndef CONFIG_SND_SOC_TPA6165A2
 	wcd9xxx_mbhc_get_impedance(&priv->mbhc, &zl, &zr);
 	pr_debug("%s: zl %u, zr %u\n", __func__, zl, zr);
+#else
+	zr = zl = 0;
+#endif
 	ucontrol->value.integer.value[0] = hphr ? zr : zl;
 
 	return 0;
@@ -2407,6 +2460,44 @@ static const struct snd_kcontrol_new aif_cap_mixer[] = {
 	SOC_SINGLE_EXT("SLIM TX10", SND_SOC_NOPM, TAIKO_TX10, 1, 0,
 			slim_tx_mixer_get, slim_tx_mixer_put),
 };
+
+static int micb_mixer_mixer_get(struct snd_kcontrol *kcontrol,
+			   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_widget *widget = wlist->widgets[0];
+
+	ucontrol->value.enumerated.item[0] = widget->value;
+	return 0;
+}
+
+static int micb_mixer_mixer_put(struct snd_kcontrol *kcontrol,
+			     struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_widget_list *wlist = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_widget *widget = wlist->widgets[0];
+	struct snd_soc_codec *codec = widget->codec;
+	u32 enable = ucontrol->value.integer.value[0];
+
+	pr_debug("%s: wname %s cname %s value %u shift %d item %ld\n", __func__,
+		widget->name, ucontrol->id.name, widget->value, widget->shift,
+		ucontrol->value.integer.value[0]);
+
+	mutex_lock(&codec->mutex);
+
+
+	snd_soc_dapm_mixer_update_power(widget, kcontrol, enable);
+
+	mutex_unlock(&codec->mutex);
+	return 0;
+}
+
+static const struct snd_kcontrol_new micb_mixer[] = {
+	SOC_SINGLE_EXT("MIC BIAS3 External", SND_SOC_NOPM, TAIKO_TX1, 1, 0,
+			micb_mixer_mixer_get, micb_mixer_mixer_put),
+
+};
+
 
 static void taiko_codec_enable_adc_block(struct snd_soc_codec *codec,
 					 int enable)
@@ -3308,6 +3399,7 @@ static int taiko_hphl_dac_event(struct snd_soc_dapm_widget *w,
 						 WCD9XXX_CLSH_STATE_HPHL,
 						 WCD9XXX_CLSH_REQ_ENABLE,
 						 WCD9XXX_CLSH_EVENT_PRE_DAC);
+#ifndef CONFIG_SND_SOC_TPA6165A2
 		ret = wcd9xxx_mbhc_get_impedance(&taiko_p->mbhc,
 					&impedl, &impedr);
 		if (!ret)
@@ -3315,6 +3407,10 @@ static int taiko_hphl_dac_event(struct snd_soc_dapm_widget *w,
 		else
 			dev_err(codec->dev, "Failed to get mbhc impedance %d\n",
 						ret);
+#else
+		impedl = impedr = 0;
+		ret = 0;
+#endif
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		snd_soc_update_bits(codec, TAIKO_A_CDC_CLK_RDAC_CLK_EN_CTL,
@@ -4446,8 +4542,13 @@ static unsigned int taiko_read(struct snd_soc_codec *codec,
 static int taiko_startup(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
+	struct wcd9xxx *taiko_core = dev_get_drvdata(dai->codec->dev->parent);
 	pr_debug("%s(): substream = %s  stream = %d\n" , __func__,
 		 substream->name, substream->stream);
+	if ((taiko_core != NULL) &&
+	    (taiko_core->dev != NULL) &&
+	    (taiko_core->dev->parent != NULL))
+		pm_runtime_get_sync(taiko_core->dev->parent);
 
 	return 0;
 }
@@ -4455,8 +4556,15 @@ static int taiko_startup(struct snd_pcm_substream *substream,
 static void taiko_shutdown(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
+	struct wcd9xxx *taiko_core = dev_get_drvdata(dai->codec->dev->parent);
 	pr_debug("%s(): substream = %s  stream = %d\n" , __func__,
 		 substream->name, substream->stream);
+	if ((taiko_core != NULL) &&
+	    (taiko_core->dev != NULL) &&
+	    (taiko_core->dev->parent != NULL)) {
+		pm_runtime_mark_last_busy(taiko_core->dev->parent);
+		pm_runtime_put(taiko_core->dev->parent);
+	}
 }
 
 int taiko_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
@@ -4949,89 +5057,6 @@ static int taiko_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-#ifdef CONFIG_SND_SOC_ES325
-static int taiko_es325_hw_params(struct snd_pcm_substream *substream,
-		struct snd_pcm_hw_params *params,
-		struct snd_soc_dai *dai)
-{
-	int rc = 0;
-	dev_err(dai->dev,"%s: dai_name = %s DAI-ID %x rate %d num_ch %d\n", __func__,
-			dai->name, dai->id, params_rate(params),
-			params_channels(params));
-
-	rc = taiko_hw_params(substream, params, dai);
-
-	if (es325_remote_route_enable(dai))
-		rc = es325_slim_hw_params(substream, params, dai);
-
-	return rc;
-}
-
-#define SLIM_BUGFIX
-static int taiko_es325_set_channel_map(struct snd_soc_dai *dai,
-				unsigned int tx_num, unsigned int *tx_slot,
-				unsigned int rx_num, unsigned int *rx_slot)
-
-{
-#if !defined(SLIM_BUGFIX)
-	unsigned int taiko_tx_num = 0;
-#endif
-	unsigned int taiko_tx_slot[6];
-#if !defined(SLIM_BUGFIX)
-	unsigned int taiko_rx_num = 0;
-#endif
-	unsigned int taiko_rx_slot[6];
-#if defined(SLIM_BUGFIX)
-	unsigned int temp_tx_num = 0;
-	unsigned int temp_rx_num = 0;
-#endif
-	int rc = 0;
-
-	if (es325_remote_route_enable(dai)) {
-#if defined(SLIM_BUGFIX)
-		rc = taiko_get_channel_map(dai, &temp_tx_num, taiko_tx_slot,
-					&temp_rx_num, taiko_rx_slot);
-#else
-		rc = taiko_get_channel_map(dai, &taiko_tx_num, taiko_tx_slot,
-					&taiko_rx_num, taiko_rx_slot);
-#endif
-
-		rc = taiko_set_channel_map(dai, tx_num, taiko_tx_slot, rx_num, taiko_rx_slot);
-
-		rc = es325_slim_set_channel_map(dai, tx_num, tx_slot, rx_num, rx_slot);
-	} else
-		rc = taiko_set_channel_map(dai, tx_num, tx_slot, rx_num, rx_slot);
-
-	return rc;
-}
-
-static int taiko_es325_get_channel_map(struct snd_soc_dai *dai,
-				unsigned int *tx_num, unsigned int *tx_slot,
-				unsigned int *rx_num, unsigned int *rx_slot)
-
-{
-	int rc = 0;
-
-	if (es325_remote_route_enable(dai))
-		rc = es325_slim_get_channel_map(dai, tx_num, tx_slot, rx_num, rx_slot);
-	else
-		rc = taiko_get_channel_map(dai, tx_num, tx_slot, rx_num, rx_slot);
-
-	return rc;
-}
-#endif
-
-#ifdef CONFIG_SND_SOC_ES325
-static struct snd_soc_dai_ops taiko_dai_ops = {
-	.startup = taiko_startup,
-	.shutdown = taiko_shutdown,
-	.hw_params = taiko_es325_hw_params, /* tabla_hw_params, */
-	.set_sysclk = taiko_set_dai_sysclk,
-	.set_fmt = taiko_set_dai_fmt,
-	.set_channel_map = taiko_es325_set_channel_map, /* tabla_set_channel_map, */
-	.get_channel_map = taiko_es325_get_channel_map, /* tabla_get_channel_map, */
-};
-#else
 static struct snd_soc_dai_ops taiko_dai_ops = {
 	.startup = taiko_startup,
 	.shutdown = taiko_shutdown,
@@ -5041,15 +5066,6 @@ static struct snd_soc_dai_ops taiko_dai_ops = {
 	.set_channel_map = taiko_set_channel_map,
 	.get_channel_map = taiko_get_channel_map,
 };
-#endif
-#ifdef CONFIG_SND_SOC_ES325
-static struct snd_soc_dai_ops taiko_es325_dai_ops = {
-	.startup = taiko_startup,
-	.hw_params = taiko_es325_hw_params,
-	.set_channel_map = taiko_es325_set_channel_map,
-	.get_channel_map = taiko_es325_get_channel_map,
-};
-#endif
 
 static struct snd_soc_dai_driver taiko_dai[] = {
 	{
@@ -5164,50 +5180,6 @@ static struct snd_soc_dai_driver taiko_dai[] = {
 		},
 		.ops = &taiko_dai_ops,
 	},
-#ifdef CONFIG_SND_SOC_ES325
-				{
-					.name = "taiko_es325_rx1",
-					.id = AIF1_PB + ES325_DAI_ID_OFFSET,
-					.playback = {
-						.stream_name = "AIF1 Playback",
-						.rates = WCD9320_RATES,
-						.formats = TAIKO_FORMATS,
-						.rate_max = 192000,
-						.rate_min = 8000,
-						.channels_min = 1,
-						.channels_max = 2,
-					},
-					.ops = &taiko_es325_dai_ops,
-				},
-				{
-					.name = "taiko_es325_tx1",
-					.id = AIF1_CAP + ES325_DAI_ID_OFFSET,
-					.capture = {
-						.stream_name = "AIF1 Capture",
-						.rates = WCD9320_RATES,
-						.formats = TAIKO_FORMATS,
-						.rate_max = 192000,
-						.rate_min = 8000,
-						.channels_min = 1,
-						.channels_max = 2,
-					},
-					.ops = &taiko_es325_dai_ops,
-				},
-				{
-					.name = "taiko_es325_rx2",
-					.id = AIF2_PB + ES325_DAI_ID_OFFSET,
-					.playback = {
-						.stream_name = "AIF2 Playback",
-						.rates = WCD9320_RATES,
-						.formats = TAIKO_FORMATS,
-						.rate_max = 192000,
-						.rate_min = 8000,
-						.channels_min = 1,
-						.channels_max = 2,
-					},
-					.ops = &taiko_es325_dai_ops,
-				},
-#endif
 };
 
 static struct snd_soc_dai_driver taiko_i2s_dai[] = {
@@ -5372,14 +5344,8 @@ static int taiko_codec_enable_slimrx(struct snd_soc_dapm_widget *w,
 		ret = wcd9xxx_cfg_slim_sch_rx(core, &dai->wcd9xxx_ch_list,
 					      dai->rate, dai->bit_width,
 					      &dai->grph);
-		#ifdef CONFIG_SND_SOC_ES325
-		ret = es325_remote_cfg_slim_rx(w->shift);
-		#endif
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		#ifdef CONFIG_SND_SOC_ES325
-		ret = es325_remote_close_slim_rx(w->shift);
-		#endif
 		ret = wcd9xxx_close_slim_sch_rx(core, &dai->wcd9xxx_ch_list,
 						dai->grph);
 		if (!dai->bus_down_in_recovery)
@@ -5508,14 +5474,8 @@ static int taiko_codec_enable_slimtx(struct snd_soc_dapm_widget *w,
 		ret = wcd9xxx_cfg_slim_sch_tx(core, &dai->wcd9xxx_ch_list,
 					      dai->rate, dai->bit_width,
 					      &dai->grph);
-#ifdef CONFIG_SND_SOC_ES325
-		ret = es325_remote_cfg_slim_tx(w->shift);
-#endif
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-#ifdef CONFIG_SND_SOC_ES325
-        ret = es325_remote_close_slim_tx(w->shift);
-#endif
 		ret = wcd9xxx_close_slim_sch_tx(core, &dai->wcd9xxx_ch_list,
 						dai->grph);
 		if (!dai->bus_down_in_recovery)
@@ -6002,6 +5962,10 @@ static const struct snd_soc_dapm_widget taiko_dapm_widgets[] = {
 
 	SND_SOC_DAPM_INPUT("AMIC2"),
 	SND_SOC_DAPM_MICBIAS_E(DAPM_MICBIAS2_EXTERNAL_STANDALONE, SND_SOC_NOPM,
+			       7, 0, taiko_codec_enable_micbias,
+			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+			       SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_MICBIAS_E(DAPM_MICBIAS3_EXTERNAL_STANDALONE, SND_SOC_NOPM,
 			       7, 0, taiko_codec_enable_micbias,
 			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
 			       SND_SOC_DAPM_POST_PMD),
@@ -7359,6 +7323,7 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 		rco_clk_rate = TAIKO_MCLK_CLK_12P288MHZ;
 	else
 		rco_clk_rate = TAIKO_MCLK_CLK_9P6MHZ;
+
 	taiko->fw_data = kzalloc(sizeof(*(taiko->fw_data)), GFP_KERNEL);
 	if (!taiko->fw_data) {
 		dev_err(codec->dev, "Failed to allocate fw_data\n");
@@ -7373,6 +7338,8 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev, "%s hwdep failed %d\n", __func__, ret);
 		goto err_hwdep;
 	}
+
+#ifndef CONFIG_SND_SOC_TPA6165A2
 	/* init and start mbhc */
 	ret = wcd9xxx_mbhc_init(&taiko->mbhc, &taiko->resmgr, codec,
 				taiko_enable_mbhc_micbias,
@@ -7382,6 +7349,7 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 		pr_err("%s: mbhc init failed %d\n", __func__, ret);
 		goto err_hwdep;
 	}
+#endif
 
 	taiko->codec = codec;
 	for (i = 0; i < COMPANDER_MAX; i++) {
@@ -7416,9 +7384,6 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 					   WCD9XXX_BANDGAP_AUDIO_MODE);
 		WCD9XXX_BG_CLK_UNLOCK(&taiko->resmgr);
 	}
-#ifdef CONFIG_SND_SOC_ES325
-		es325_remote_add_codec_controls(codec);
-#endif
 
 	ptr = kmalloc((sizeof(taiko_rx_chs) +
 		       sizeof(taiko_tx_chs)), GFP_KERNEL);

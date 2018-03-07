@@ -1,6 +1,6 @@
 /* arch/arm/mach-msm/smp2p.c
  *
- * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013,2016 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -504,7 +504,7 @@ static void smp2p_find_entry_v1(struct smp2p_smem __iomem *item,
 	struct smp2p_entry_v1 *pos;
 
 	if (!item || !name || !entry_ptr) {
-		SMP2P_ERR("%s: invalid arguments %d %d %d\n",
+		SMP2P_ERR("%s: invalid arguments %d, %d, %d\n",
 				__func__, !item, !name, !entry_ptr);
 		return;
 	}
@@ -1829,7 +1829,7 @@ static int __init msm_smp2p_init(void)
 		in_list[i].smem_edge_in = NULL;
 	}
 
-	log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smp2p", 0);
+	log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smp2p");
 	if (!log_ctx)
 		SMP2P_ERR("%s: unable to create log context\n", __func__);
 

@@ -59,6 +59,12 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 		return;
 	}
 
+	if (!pdata->panel_info.cont_splash_esd_rdy) {
+		pr_warn("%s: Splash not complete, reschedule check status\n",
+			__func__);
+		return;
+	}
+
 	mdp5_data = mfd_to_mdp5_data(pstatus_data->mfd);
 	ctl = mfd_to_ctl(pstatus_data->mfd);
 
@@ -74,8 +80,7 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 		return;
 	}
 
-	mutex_lock(&ctrl_pdata->mutex);
-
+	mutex_lock(&ctl->offlock);
 	/*
 	 * TODO: Because mdss_dsi_cmd_mdp_busy has made sure DMA to
 	 * be idle in mdss_dsi_cmdlist_commit, it is not necessary
@@ -89,8 +94,8 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	if (pstatus_data->mfd->shutdown_pending) {
 		if (mipi->mode == DSI_CMD_MODE)
 			mutex_unlock(&mdp5_data->ov_lock);
-		mutex_unlock(&ctrl_pdata->mutex);
-		pr_err("%s: DSI turning off, avoiding panel status check\n",
+		mutex_unlock(&ctl->offlock);
+		pr_err("%s: DSI turning off, avoiding BTA status check\n",
 							__func__);
 		return;
 	}
@@ -116,7 +121,7 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 
 	if (mipi->mode == DSI_CMD_MODE)
 		mutex_unlock(&mdp5_data->ov_lock);
-	mutex_unlock(&ctrl_pdata->mutex);
+	mutex_unlock(&ctl->offlock);
 
 	if ((pstatus_data->mfd->panel_power_on)) {
 		if (ret > 0) {

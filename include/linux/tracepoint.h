@@ -60,12 +60,6 @@ struct tp_module {
 	unsigned int num_tracepoints;
 	struct tracepoint * const *tracepoints_ptrs;
 };
-bool trace_module_has_bad_taint(struct module *mod);
-#else
-static inline bool trace_module_has_bad_taint(struct module *mod)
-{
-	return false;
-}
 #endif /* CONFIG_MODULES */
 
 struct tracepoint_iter {
@@ -108,7 +102,8 @@ static inline void tracepoint_synchronize_unregister(void)
 #define TP_ARGS(args...)	args
 #define TP_CONDITION(args...)	args
 
-#ifdef CONFIG_TRACEPOINTS
+#if defined(CONFIG_TRACEPOINTS) || (defined(CONFIG_TRACEPOINTS_CORE) \
+		&& defined(REALLY_WANT_TRACEPOINTS))
 
 /*
  * it_func[0] is never NULL because there is at least one element in the array

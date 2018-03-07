@@ -36,22 +36,19 @@ struct dst_entry {
 	struct net_device       *dev;
 	struct  dst_ops	        *ops;
 	unsigned long		_metrics;
-	union {
-		unsigned long           expires;
-		/* point to where the dst_entry copied from */
-		struct dst_entry        *from;
-	};
+	unsigned long           expires;
 	struct dst_entry	*path;
+	struct dst_entry        *from;
 	struct neighbour __rcu	*_neighbour;
 #ifdef CONFIG_XFRM
 	struct xfrm_state	*xfrm;
 #else
 	void			*__pad1;
 #endif
-	int			(*input)(struct sk_buff*);
-	int			(*output)(struct sk_buff*);
+	int			(*input)(struct sk_buff *);
+	int			(*output)(struct sk_buff *);
 
-	int			flags;
+	unsigned short		flags;
 #define DST_HOST		0x0001
 #define DST_NOXFRM		0x0002
 #define DST_NOPOLICY		0x0004
@@ -62,14 +59,14 @@ struct dst_entry {
 #define DST_FAKE_RTABLE		0x0080
 #define DST_XFRM_TUNNEL		0x0100
 
+	unsigned short		pending_confirm;
+
 	short			error;
 	short			obsolete;
 	unsigned short		header_len;	/* more space at head required */
 	unsigned short		trailer_len;	/* space to reserve at tail */
 #ifdef CONFIG_IP_ROUTE_CLASSID
 	__u32			tclassid;
-#else
-	__u32			__pad2;
 #endif
 
 	/*
@@ -241,7 +238,7 @@ dst_metric_locked(const struct dst_entry *dst, int metric)
 	return dst_metric(dst, RTAX_LOCK) & (1<<metric);
 }
 
-static inline void dst_hold(struct dst_entry * dst)
+static inline void dst_hold(struct dst_entry *dst)
 {
 	/*
 	 * If your kernel compilation stops here, please check
@@ -264,8 +261,7 @@ static inline void dst_use_noref(struct dst_entry *dst, unsigned long time)
 	dst->lastuse = time;
 }
 
-static inline
-struct dst_entry * dst_clone(struct dst_entry * dst)
+static inline struct dst_entry *dst_clone(struct dst_entry *dst)
 {
 	if (dst)
 		atomic_inc(&dst->__refcnt);
@@ -371,12 +367,13 @@ static inline struct dst_entry *skb_dst_pop(struct sk_buff *skb)
 }
 
 extern int dst_discard(struct sk_buff *skb);
-extern void *dst_alloc(struct dst_ops * ops, struct net_device *dev,
-		       int initial_ref, int initial_obsolete, int flags);
-extern void __dst_free(struct dst_entry * dst);
-extern struct dst_entry *dst_destroy(struct dst_entry * dst);
+extern void *dst_alloc(struct dst_ops *ops, struct net_device *dev,
+		       int initial_ref, int initial_obsolete,
+		       unsigned short flags);
+extern void __dst_free(struct dst_entry *dst);
+extern struct dst_entry *dst_destroy(struct dst_entry *dst);
 
-static inline void dst_free(struct dst_entry * dst)
+static inline void dst_free(struct dst_entry *dst)
 {
 	if (dst->obsolete > 1)
 		return;
@@ -396,14 +393,24 @@ static inline void dst_rcu_free(struct rcu_head *head)
 
 static inline void dst_confirm(struct dst_entry *dst)
 {
-	if (dst) {
-		struct neighbour *n;
+	dst->pending_confirm = 1;
+}
 
-		rcu_read_lock();
-		n = dst_get_neighbour_noref(dst);
-		neigh_confirm(n);
-		rcu_read_unlock();
+static inline int dst_neigh_output(struct dst_entry *dst, struct neighbour *n,
+				   struct sk_buff *skb)
+{
+	struct hh_cache *hh;
+
+	if (unlikely(dst->pending_confirm)) {
+		n->confirmed = jiffies;
+		dst->pending_confirm = 0;
 	}
+
+	hh = &n->hh;
+	if ((n->nud_state & NUD_CONNECTED) && hh->hh_len)
+		return neigh_hh_output(hh, skb);
+	else
+		return n->output(n, skb);
 }
 
 static inline struct neighbour *dst_neigh_lookup(const struct dst_entry *dst, const void *daddr)
@@ -464,22 +471,10 @@ static inline struct dst_entry *xfrm_lookup(struct net *net,
 {
 	return dst_orig;
 } 
-
-static inline struct xfrm_state *dst_xfrm(const struct dst_entry *dst)
-{
-	return NULL;
-}
-
 #else
 extern struct dst_entry *xfrm_lookup(struct net *net, struct dst_entry *dst_orig,
 				     const struct flowi *fl, struct sock *sk,
 				     int flags);
-
-/* skb attached with this dst needs transformation if dst->xfrm is valid */
-static inline struct xfrm_state *dst_xfrm(const struct dst_entry *dst)
-{
-	return dst->xfrm;
-}
 #endif
 
 #endif /* _NET_DST_H */

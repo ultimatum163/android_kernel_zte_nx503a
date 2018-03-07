@@ -12,7 +12,8 @@
 #include <linux/gfp.h>
 #include <linux/smp.h>
 #include <linux/cpu.h>
-#include <asm/relaxed.h>
+
+#include "smpboot.h"
 
 #ifdef CONFIG_USE_GENERIC_SMP_HELPERS
 static struct {
@@ -43,6 +44,28 @@ struct call_single_queue {
 };
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct call_single_queue, call_single_queue);
+
+#ifdef CONFIG_LOCKUP_IPI_CALL_WDT
+/*
+ * csd_lock_waiting_flag : per cpu flag.
+ * it's only used to indicate whether it's in csd_lock_waiting().
+ * Because when csd_lock_waiting() is invoked, 1) preemption will
+ * always be disabled;  2) not in irq context, it's safe to set or
+ * clear the flag directly.
+ */
+DEFINE_PER_CPU(int, csd_lock_waiting_flag);
+static inline void set_csd_lock_waiting_flag(void)
+{
+	__get_cpu_var(csd_lock_waiting_flag) = 1;
+}
+static inline void clear_csd_lock_waiting_flag(void)
+{
+	__get_cpu_var(csd_lock_waiting_flag) = 0;
+}
+#else
+static inline void set_csd_lock_waiting_flag(void) { }
+static inline void clear_csd_lock_waiting_flag(void) { }
+#endif
 
 static int
 hotplug_cfd(struct notifier_block *nfb, unsigned long action, void *hcpu)
@@ -105,8 +128,10 @@ void __init call_function_init(void)
  */
 static void csd_lock_wait(struct call_single_data *data)
 {
-	while (cpu_relaxed_read_short(&data->flags) & CSD_FLAG_LOCK)
-		cpu_read_relax();
+	set_csd_lock_waiting_flag();
+	while (data->flags & CSD_FLAG_LOCK)
+		cpu_relax();
+	clear_csd_lock_waiting_flag();
 }
 
 static void csd_lock(struct call_single_data *data)
@@ -681,6 +706,8 @@ void __init setup_nr_cpu_ids(void)
 void __init smp_init(void)
 {
 	unsigned int cpu;
+
+	idle_threads_init();
 
 	/* FIXME: This should be done in userspace --RR */
 	for_each_present_cpu(cpu) {

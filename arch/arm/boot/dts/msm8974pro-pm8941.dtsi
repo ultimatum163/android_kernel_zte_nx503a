@@ -58,6 +58,10 @@
 		qcom,ldo-delta-voltage = <12500>;
 };
 
+&mdss_mdp {
+	vdd-cx-supply = <&pm8841_s2_corner>;
+};
+
 &tspp {
 	vdd_cx-supply = <&pm8841_s2_corner>;
 };
@@ -68,12 +72,6 @@
 
 &usb3 {
 	qcom,usbin-vadc = <&pm8941_vadc>;
-	qcom,utmi-clk-rate = <24000000>;
-};
-
-&ehci {
-	hsusb_vdd_dig-supply = <&pm8841_s2_corner>;
-	qcom,vdd-voltage-level = <1 2 3 5 7>;
 };
 
 &krait_regulator_pmic {

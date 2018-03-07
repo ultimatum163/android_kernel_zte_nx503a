@@ -2883,6 +2883,18 @@ F:	Documentation/filesystems/caching/
 F:	fs/fscache/
 F:	include/linux/fscache*.h
 
+F2FS FILE SYSTEM
+M:	Jaegeuk Kim <jaegeuk@kernel.org>
+M:	Changman Lee <cm224.lee@samsung.com>
+L:	linux-f2fs-devel@lists.sourceforge.net
+W:	http://en.wikipedia.org/wiki/F2FS
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jaegeuk/f2fs.git
+S:	Maintained
+F:	Documentation/filesystems/f2fs.txt
+F:	Documentation/ABI/testing/sysfs-fs-f2fs
+F:	fs/f2fs/
+F:	include/linux/f2fs_fs.h
+
 FUJITSU FR-V (FRV) PORT
 M:	David Howells <dhowells@redhat.com>
 S:	Maintained
@@ -4998,6 +5010,13 @@ F:	drivers/scsi/osd/
 F:	include/scsi/osd_*
 F:	fs/exofs/
 
+OVERLAYFS FILESYSTEM
+M:	Miklos Szeredi <miklos@szeredi.hu>
+L:	linux-fsdevel@vger.kernel.org
+S:	Supported
+F:	fs/overlayfs/*
+F:	Documentation/filesystems/overlayfs.txt
+
 P54 WIRELESS DRIVER
 M:	Christian Lamparter <chunkeey@googlemail.com>
 L:	linux-wireless@vger.kernel.org
@@ -5937,6 +5956,16 @@ S:	Maintained
 F:	drivers/mmc/host/sdhci.*
 F:	drivers/mmc/host/sdhci-pltfm.[ch]
 
+SECURE COMPUTING
+M:	Kees Cook <keescook@chromium.org>
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git seccomp
+S:	Supported
+F:	kernel/seccomp.c
+F:	include/uapi/linux/seccomp.h
+F:	include/linux/seccomp.h
+K:	\bsecure_computing
+K:	\bTIF_SECCOMP\b
+
 SECURE DIGITAL HOST CONTROLLER INTERFACE, OPEN FIRMWARE BINDINGS (SDHCI-OF)
 M:	Anton Vorontsov <avorontsov@ru.mvista.com>
 L:	linuxppc-dev@lists.ozlabs.org
@@ -6390,7 +6419,6 @@ STABLE BRANCH
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 L:	stable@vger.kernel.org
 S:	Supported
-F:	Documentation/stable_kernel_rules.txt
 
 STAGING SUBSYSTEM
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
@@ -7508,6 +7536,16 @@ S:	Maintained
 F:	include/linux/workqueue.h
 F:	kernel/workqueue.c
 F:	Documentation/workqueue.txt
+
+WRAPFS
+P:	Erez Zadok
+M:	ezk@cs.sunysb.edu
+L:	wrapfs@filesystems.org
+W:	http://wrapfs.filesystems.org/
+T:	git git.kernel.org/pub/scm/linux/kernel/git/ezk/wrapfs.git
+S:	Maintained
+F:	Documentation/filesystems/wrapfs.txt
+F:	fs/wrapfs/
 
 X.25 NETWORK LAYER
 M:	Andrew Hendry <andrew.hendry@gmail.com>

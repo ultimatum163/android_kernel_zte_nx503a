@@ -41,6 +41,7 @@
 #include <linux/cpu.h>
 #include <linux/notifier.h>
 #include <linux/rculist.h>
+#include <linux/apanic_mmc.h>
 
 #include <asm/uaccess.h>
 
@@ -127,7 +128,7 @@ static struct console *exclusive_console;
  */
 struct console_cmdline
 {
-	char	name[16];			/* Name of the driver	    */
+	char	name[8];			/* Name of the driver	    */
 	int	index;				/* Minor dev. to use	    */
 	char	*options;			/* Options for the driver   */
 #ifdef CONFIG_A11Y_BRAILLE_CONSOLE
@@ -727,6 +728,16 @@ static void call_console_drivers(unsigned start, unsigned end)
 
 static void emit_log_char(char c)
 {
+	static int is_begin;
+	int start_apanic_threads;
+
+	start_apanic_threads = is_apanic_threads_dump();
+	if (unlikely(start_apanic_threads) && !is_begin) {
+		is_begin = 1;
+		log_end = 0;
+		logged_chars = 0;
+	}
+
 	LOG_BUF(log_end) = c;
 	log_end++;
 	if (log_end - log_start > log_buf_len)
@@ -735,6 +746,12 @@ static void emit_log_char(char c)
 		con_start = log_end - log_buf_len;
 	if (logged_chars < log_buf_len)
 		logged_chars++;
+
+	if (unlikely(start_apanic_threads &&
+		((log_end & (LOG_BUF_MASK + 1)) == __LOG_BUF_LEN))) {
+		emergency_dump();
+		is_begin = 0;
+	}
 }
 
 /*
@@ -813,6 +830,8 @@ asmlinkage int printk(const char *fmt, ...)
 	uncached_logk_pc(LOGK_LOGBUF, caller, (void *)log_end);
 #endif
 
+	if (is_emergency_dump())
+		return 0;
 #ifdef CONFIG_KGDB_KDB
 	if (unlikely(kdb_trap_printk)) {
 		va_start(args, fmt);
@@ -875,9 +894,9 @@ static int console_trylock_for_printk(unsigned int cpu)
 		}
 	}
 	printk_cpu = UINT_MAX;
-	raw_spin_unlock(&logbuf_lock);
 	if (wake)
 		up(&console_sem);
+	raw_spin_unlock(&logbuf_lock);
 	return retval;
 }
 static const char recursion_bug_msg [] =
@@ -1002,16 +1021,10 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 				t = cpu_clock(printk_cpu);
 				nanosec_rem = do_div(t, 1000000000);
-				//peirs modify for debug msm_ipc_router problem, 2013.09.23, begin:
-				/*
-				tlen = sprintf(tbuf, "[%5lu.%06lu] ",
+				tlen = sprintf(tbuf, "[%5lu.%06lu,%d] ",
 						(unsigned long) t,
-						nanosec_rem / 1000);
-				*/
-				tlen = sprintf(tbuf, "[%5lu.%06lu][%4d,%-20s]", 
-						(unsigned long) t, 
-						nanosec_rem / 1000, (int)current->pid, current->comm);				
-				//end.
+						nanosec_rem / 1000, this_cpu);
+
 				for (tp = tbuf; tp < tbuf + tlen; tp++)
 					emit_log_char(*tp);
 				printed_len += tlen;
@@ -1248,6 +1261,7 @@ static int __cpuinit console_cpu_notify(struct notifier_block *self,
 		console_unlock();
 		break;
 	case CPU_ONLINE:
+	case CPU_DYING:
 		/* invoked with preemption disabled, so defer */
 		if (!console_trylock())
 			schedule_work(&console_cpu_notify_work);
@@ -1401,6 +1415,8 @@ again:
 	raw_spin_lock(&logbuf_lock);
 	if (con_start != log_end)
 		retry = 1;
+	else
+		retry = 0;
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 
 	if (retry && console_trylock())
@@ -1575,7 +1591,6 @@ void register_console(struct console *newcon)
 	 */
 	for (i = 0; i < MAX_CMDLINECONSOLES && console_cmdline[i].name[0];
 			i++) {
-		BUILD_BUG_ON(sizeof(console_cmdline[i].name) != sizeof(newcon->name));
 		if (strcmp(console_cmdline[i].name, newcon->name) != 0)
 			continue;
 		if (newcon->index >= 0 &&
@@ -1731,7 +1746,7 @@ late_initcall(printk_late_init);
 
 #if defined CONFIG_PRINTK
 
-int printk_deferred(const char *fmt, ...)
+int printk_sched(const char *fmt, ...)
 {
 	unsigned long flags;
 	va_list args;

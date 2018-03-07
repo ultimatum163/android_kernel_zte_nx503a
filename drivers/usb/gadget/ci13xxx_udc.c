@@ -483,6 +483,10 @@ static int hw_ep_flush(int num, int dir)
 					dir ? "IN" : "OUT");
 				debug_ept_flush_info(num, dir);
 				_udc->skip_flush = true;
+				/* Notify to trigger h/w reset recovery later */
+				if (_udc->udc_driver->notify_event)
+					_udc->udc_driver->notify_event(_udc,
+						CI13XXX_CONTROLLER_ERROR_EVENT);
 				return 0;
 			}
 		}
@@ -840,6 +844,9 @@ static int hw_usb_reset(void)
 
 	/* ESS flushes only at end?!? */
 	hw_cwrite(CAP_ENDPTFLUSH,    ~0, ~0);   /* flush all EPs */
+
+	/* clear setup token semaphores */
+	hw_cwrite(CAP_ENDPTSETUPSTAT, 0,  0);   /* writes its content */
 
 	/* clear complete status */
 	hw_cwrite(CAP_ENDPTCOMPLETE,  0,  0);   /* writes its content */
@@ -2295,7 +2302,6 @@ static int _gadget_stop_activity(struct usb_gadget *gadget)
 	udc->configured = 0;
 	spin_unlock_irqrestore(udc->lock, flags);
 
-	gadget->xfer_isr_count = 0;
 	gadget->b_hnp_enable = 0;
 	gadget->a_hnp_support = 0;
 	gadget->host_request = 0;
@@ -3399,6 +3405,27 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 	return 0;
 }
 
+static int ci13xxx_vbus_enable_charge(struct usb_gadget *_gadget, int is_on)
+{
+	struct ci13xxx *udc = container_of(_gadget, struct ci13xxx, gadget);
+	unsigned long flags;
+
+	spin_lock_irqsave(udc->lock, flags);
+	udc->charge_enabled = is_on;
+	if (udc->vbus_active && udc->charge_enabled)
+		ci13xxx_vbus_draw(_gadget, 500);
+	spin_unlock_irqrestore(udc->lock, flags);
+
+	return 0;
+}
+
+static int ci13xxx_vbus_is_charge_enabled(struct usb_gadget *_gadget)
+{
+	struct ci13xxx *udc = container_of(_gadget, struct ci13xxx, gadget);
+
+	return !!udc->charge_enabled;
+}
+
 static int ci13xxx_start(struct usb_gadget_driver *driver,
 		int (*bind)(struct usb_gadget *));
 static int ci13xxx_stop(struct usb_gadget_driver *driver);
@@ -3415,6 +3442,8 @@ static const struct usb_gadget_ops usb_gadget_ops = {
 	.pullup		= ci13xxx_pullup,
 	.start		= ci13xxx_start,
 	.stop		= ci13xxx_stop,
+	.vbus_set_charge_enabled = ci13xxx_vbus_enable_charge,
+	.vbus_get_charge_enabled = ci13xxx_vbus_is_charge_enabled,
 };
 
 /**
@@ -3689,7 +3718,6 @@ static irqreturn_t udc_irq(void)
 			isr_statistics.uei++;
 		if (USBi_UI  & intr) {
 			isr_statistics.ui++;
-			udc->gadget.xfer_isr_count++;
 			isr_tr_complete_handler(udc);
 		}
 		if (USBi_SLI & intr) {

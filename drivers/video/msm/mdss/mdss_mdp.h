@@ -58,6 +58,14 @@
 #define OVERFETCH_DISABLE_LEFT		BIT(2)
 #define OVERFETCH_DISABLE_RIGHT		BIT(3)
 
+#define PERF_STATUS_DONE 0
+#define PERF_STATUS_BUSY 1
+
+enum mdss_mdp_perf_state_type {
+	PERF_SW_COMMIT_STATE = 0,
+	PERF_HW_MDP_STATE,
+};
+
 #ifdef MDSS_MDP_DEBUG_REG
 static inline void mdss_mdp_reg_write(u32 addr, u32 val)
 {
@@ -77,13 +85,6 @@ static inline u32 mdss_mdp_reg_read(u32 addr)
 #define MDSS_MDP_REG_WRITE(addr, val)	MDSS_REG_WRITE((u32)(addr), (u32)(val))
 #define MDSS_MDP_REG_READ(addr)		MDSS_REG_READ((u32)(addr))
 #endif
-#define PERF_STATUS_DONE 0
-#define PERF_STATUS_BUSY 1
-
-enum mdss_mdp_perf_state_type {
-	PERF_SW_COMMIT_STATE = 0,
-	PERF_HW_MDP_STATE,
-};
 
 enum mdss_mdp_block_power_state {
 	MDP_BLOCK_POWER_OFF = 0,
@@ -196,6 +197,7 @@ struct mdss_mdp_ctl {
 	struct mdss_mdp_mixer *mixer_left;
 	struct mdss_mdp_mixer *mixer_right;
 	struct mutex lock;
+	struct mutex offlock;
 	struct mutex *shared_lock;
 	struct mutex *wb_lock;
 	spinlock_t spin_lock;
@@ -225,6 +227,8 @@ struct mdss_mdp_ctl {
 				struct mdss_mdp_ctl *sctl, int new_fps);
 
 	struct blocking_notifier_head notifier_head;
+	void (*ctx_dump_fnc) (struct mdss_mdp_ctl *ctl);
+	int (*panel_on_locked) (struct mdss_mdp_ctl *ctl);
 
 	void *priv_data;
 	u32 wb_type;
@@ -578,6 +582,8 @@ int mdss_mdp_cmd_start(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_writeback_start(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 		struct mdp_display_commit *data);
+void mdss_mdp_overlay_cleanup(struct msm_fb_data_type *mfd,
+		struct list_head *destroy_pipes);
 
 struct mdss_mdp_ctl *mdss_mdp_ctl_init(struct mdss_panel_data *pdata,
 					struct msm_fb_data_type *mfd);
@@ -598,7 +604,7 @@ int mdss_mdp_perf_bw_check(struct mdss_mdp_ctl *ctl,
 		struct mdss_mdp_pipe **right_plist, int right_cnt);
 int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	struct mdss_mdp_perf_params *perf, struct mdss_mdp_img_rect *roi,
-	bool apply_fudge);
+	int tune, bool apply_fudge);
 int mdss_mdp_ctl_notify(struct mdss_mdp_ctl *ctl, int event);
 void mdss_mdp_ctl_notifier_register(struct mdss_mdp_ctl *ctl,
 	struct notifier_block *notifier);
@@ -725,6 +731,7 @@ void mdss_mdp_crop_rect(struct mdss_mdp_img_rect *src_rect,
 
 int mdss_mdp_wb_kickoff(struct msm_fb_data_type *mfd);
 int mdss_mdp_wb_ioctl_handler(struct msm_fb_data_type *mfd, u32 cmd, void *arg);
+int mdss_dsi_ioctl_handler(struct mdss_panel_data *pdata, u32 cmd, void *arg);
 
 int mdss_mdp_get_ctl_mixers(u32 fb_num, u32 *mixer_id);
 u32 mdss_mdp_fb_stride(u32 fb_index, u32 xres, int bpp);
@@ -762,8 +769,11 @@ int mdss_mdp_pipe_program_pixel_extn(struct mdss_mdp_pipe *pipe);
 				(mfd->mdp.private1))->wb)
 
 int  mdss_mdp_ctl_reset(struct mdss_mdp_ctl *ctl);
-#ifdef CONFIG_ZTEMT_LCD_DISP_ENHANCE
-//lcd color tmp adjust,mayu add
-int zte_mdss_pcc_config(struct mdp_pcc_cfg_data *config);
-#endif
+
+int mdss_mdp_overlay_set(struct msm_fb_data_type *mfd, struct mdp_overlay *req);
+int mdss_mdp_overlay_play(struct msm_fb_data_type *mfd,
+			  struct msmfb_overlay_data *req);
+int mdss_mdp_overlay_unset(struct msm_fb_data_type *mfd, int ndx);
+void mdss_mdp_footswitch_ctrl(struct mdss_data_type *mdata, int on);
+
 #endif /* MDSS_MDP_H */

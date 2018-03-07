@@ -1082,13 +1082,13 @@ bad:
 	return 0;
 }
 
-static noinline int free_debug_processing(struct kmem_cache *s,
-		 struct page *page, void *object, unsigned long addr)
+static noinline struct kmem_cache_node *free_debug_processing(
+	struct kmem_cache *s, struct page *page, void *object,
+	unsigned long addr, unsigned long *flags)
 {
-	unsigned long flags;
-	int rc = 0;
+	struct kmem_cache_node *n = get_node(s, page_to_nid(page));
 
-	local_irq_save(flags);
+	spin_lock_irqsave(&n->list_lock, *flags);
 	slab_lock(page);
 
 	if (!check_slab(s, page))
@@ -1126,15 +1126,19 @@ static noinline int free_debug_processing(struct kmem_cache *s,
 		set_track(s, object, TRACK_FREE, addr);
 	trace(s, page, object, 0);
 	init_object(s, object, SLUB_RED_INACTIVE);
-	rc = 1;
 out:
 	slab_unlock(page);
-	local_irq_restore(flags);
-	return rc;
+	/*
+	 * Keep node_lock to preserve integrity
+	 * until the object is actually freed
+	 */
+	return n;
 
 fail:
+	slab_unlock(page);
+	spin_unlock_irqrestore(&n->list_lock, *flags);
 	slab_fix(s, "Object at 0x%p not freed", object);
-	goto out;
+	return NULL;
 }
 
 static int __init setup_slub_debug(char *str)
@@ -1227,8 +1231,9 @@ static inline void setup_object_debug(struct kmem_cache *s,
 static inline int alloc_debug_processing(struct kmem_cache *s,
 	struct page *page, void *object, unsigned long addr) { return 0; }
 
-static inline int free_debug_processing(struct kmem_cache *s,
-	struct page *page, void *object, unsigned long addr) { return 0; }
+static inline struct kmem_cache_node *free_debug_processing(
+	struct kmem_cache *s, struct page *page, void *object,
+	unsigned long addr, unsigned long *flags) { return NULL; }
 
 static inline int slab_pad_check(struct kmem_cache *s, struct page *page)
 			{ return 1; }
@@ -1617,7 +1622,7 @@ static struct page *get_any_partial(struct kmem_cache *s, gfp_t flags,
 
 	do {
 		cpuset_mems_cookie = get_mems_allowed();
-		zonelist = node_zonelist(slab_node(), flags);
+		zonelist = node_zonelist(slab_node(current->mempolicy), flags);
 		for_each_zone_zonelist(zone, z, zonelist, high_zoneidx) {
 			struct kmem_cache_node *n;
 
@@ -1882,24 +1887,18 @@ redo:
 /* Unfreeze all the cpu partial slabs */
 static void unfreeze_partials(struct kmem_cache *s)
 {
-	struct kmem_cache_node *n = NULL, *n2 = NULL;
+	struct kmem_cache_node *n = NULL;
 	struct kmem_cache_cpu *c = this_cpu_ptr(s->cpu_slab);
 	struct page *page, *discard_page = NULL;
 
 	while ((page = c->partial)) {
+		enum slab_modes { M_PARTIAL, M_FREE };
+		enum slab_modes l, m;
 		struct page new;
 		struct page old;
 
 		c->partial = page->next;
-
-		n2 = get_node(s, page_to_nid(page));
-		if (n != n2) {
-			if (n)
-				spin_unlock(&n->list_lock);
-
-			n = n2;
-			spin_lock(&n->list_lock);
-		}
+		l = M_FREE;
 
 		do {
 
@@ -1912,17 +1911,43 @@ static void unfreeze_partials(struct kmem_cache *s)
 
 			new.frozen = 0;
 
+			if (!new.inuse && (!n || n->nr_partial > s->min_partial))
+				m = M_FREE;
+			else {
+				struct kmem_cache_node *n2 = get_node(s,
+							page_to_nid(page));
+
+				m = M_PARTIAL;
+				if (n != n2) {
+					if (n)
+						spin_unlock(&n->list_lock);
+
+					n = n2;
+					spin_lock(&n->list_lock);
+				}
+			}
+
+			if (l != m) {
+				if (l == M_PARTIAL) {
+					remove_partial(n, page);
+					stat(s, FREE_REMOVE_PARTIAL);
+				} else {
+					add_partial(n, page,
+						DEACTIVATE_TO_TAIL);
+					stat(s, FREE_ADD_PARTIAL);
+				}
+
+				l = m;
+			}
+
 		} while (!cmpxchg_double_slab(s, page,
 				old.freelist, old.counters,
 				new.freelist, new.counters,
 				"unfreezing slab"));
 
-		if (unlikely(!new.inuse && n->nr_partial > s->min_partial)) {
+		if (m == M_FREE) {
 			page->next = discard_page;
 			discard_page = page;
-		} else {
-			add_partial(n, page, DEACTIVATE_TO_TAIL);
-			stat(s, FREE_ADD_PARTIAL);
 		}
 	}
 
@@ -2433,7 +2458,8 @@ static void __slab_free(struct kmem_cache *s, struct page *page,
 
 	stat(s, FREE_SLOWPATH);
 
-	if (kmem_cache_debug(s) && !free_debug_processing(s, page, x, addr))
+	if (kmem_cache_debug(s) &&
+		!(n = free_debug_processing(s, page, x, addr, &flags)))
 		return;
 
 	do {
@@ -4506,13 +4532,7 @@ static ssize_t show_slab_objects(struct kmem_cache *s,
 			page = c->partial;
 
 			if (page) {
-				node = page_to_nid(page);
-				if (flags & SO_TOTAL)
-					WARN_ON_ONCE(1);
-				else if (flags & SO_OBJECTS)
-					WARN_ON_ONCE(1);
-				else
-					x = page->pages;
+				x = page->pobjects;
 				total += x;
 				nodes[node] += x;
 			}

@@ -43,6 +43,8 @@
 #include <mach/subsystem_restart.h>
 #include <mach/subsystem_notif.h>
 
+#include <asm/system_info.h>
+
 #ifdef CONFIG_WCNSS_MEM_PRE_ALLOC
 #include "wcnss_prealloc.h"
 #endif
@@ -439,6 +441,7 @@ static struct {
 	int pc_disabled;
 	struct delayed_work wcnss_pm_qos_del_req;
 	struct mutex pm_qos_mutex;
+	const char *nv_file_name;
 } *penv = NULL;
 
 static ssize_t wcnss_wlan_macaddr_store(struct device *dev,
@@ -1090,7 +1093,6 @@ static void wcnss_smd_notify_event(void *data, unsigned int event)
 		schedule_work(&penv->wcnss_pm_config_work);
 		__cancel_delayed_work(&penv->wcnss_pm_qos_del_req);
 		schedule_delayed_work(&penv->wcnss_pm_qos_del_req, 0);
-
 		break;
 
 	case SMD_EVENT_CLOSE:
@@ -1581,6 +1583,14 @@ int wcnss_get_wlan_unsafe_channel(u16 *unsafe_ch_list, u16 buffer_size,
 }
 EXPORT_SYMBOL(wcnss_get_wlan_unsafe_channel);
 
+const char *wcnss_get_nv_file_name(void)
+{
+	if (penv && penv->nv_file_name && strlen(penv->nv_file_name) > 0)
+		return penv->nv_file_name;
+	return NULL;
+}
+EXPORT_SYMBOL(wcnss_get_nv_file_name);
+
 static int wcnss_smd_tx(void *data, int len)
 {
 	int ret = 0;
@@ -1992,30 +2002,24 @@ static void wcnss_send_pm_config(struct work_struct *worker)
 
 	if (!of_find_property(penv->pdev->dev.of_node,
 				"qcom,wcnss-pm", &prop_len))
-		return;
+		return ;
 
 	msg = kmalloc((sizeof(struct smd_msg_hdr) + prop_len), GFP_KERNEL);
-
 	if (NULL == msg) {
-		pr_err("wcnss: %s: failed to allocate memory\n", __func__);
+		pr_err("wcnss: %s: failed to get memory\n", __func__);
 		return;
 	}
 
-	payload = (u32 *)(msg + sizeof(struct smd_msg_hdr));
-
-	prop_len /= sizeof(int);
-
+	payload = (u32 *)(msg+sizeof(struct smd_msg_hdr));
 	rc = of_property_read_u32_array(penv->pdev->dev.of_node,
-			"qcom,wcnss-pm", payload, prop_len);
-	if (rc < 0) {
-		pr_err("wcnss: property read failed\n");
-		kfree(msg);
-		return;
-	}
+		"qcom,wcnss-pm", payload, prop_len >> 2);
 
-	pr_debug("%s:size=%d: <%d, %d, %d, %d, %d %d>\n", __func__,
-			prop_len, *payload, *(payload+1), *(payload+2),
-			*(payload+3), *(payload+4), *(payload+5));
+	if (rc < 0)
+		pr_err("wcnss: property read failed\n");
+
+	pr_info("wcnss_send_pm_config, size=%d, <%d, %d, %d, %d, %d, %d>\n",
+		prop_len, *payload, *(payload + 1), *(payload + 2),
+		*(payload + 3), *(payload + 4), *(payload + 5));
 
 	hdr = (struct smd_msg_hdr *)msg;
 	hdr->msg_type = WCNSS_PM_CONFIG_REQ;
@@ -2026,7 +2030,6 @@ static void wcnss_send_pm_config(struct work_struct *worker)
 		pr_err("wcnss: smd tx failed\n");
 
 	kfree(msg);
-	return;
 }
 
 static DECLARE_RWSEM(wcnss_pm_sem);
@@ -2044,14 +2047,17 @@ static void wcnss_nvbin_dnld(void)
 	unsigned int nv_blob_size = 0;
 	const struct firmware *nv = NULL;
 	struct device *dev = &penv->pdev->dev;
+	const char *nv_file_name = (penv->nv_file_name ?
+					penv->nv_file_name : NVBIN_FILE);
 
 	down_read(&wcnss_pm_sem);
 
-	ret = request_firmware(&nv, NVBIN_FILE, dev);
+	pr_info("wcnss: NV file name = %s\n", nv_file_name);
+	ret = request_firmware(&nv, nv_file_name, dev);
 
 	if (ret || !nv || !nv->data || !nv->size) {
 		pr_err("wcnss: %s: request_firmware failed for %s(ret = %d)\n",
-			__func__, NVBIN_FILE, ret);
+			__func__, nv_file_name, ret);
 		goto out;
 	}
 
@@ -2407,6 +2413,8 @@ wcnss_trigger_config(struct platform_device *pdev)
 		return 0;
 	penv->triggered = 1;
 
+	penv->nv_file_name = of_get_property(pdev->dev.of_node,
+						"qcom,nv_file", NULL);
 	/* initialize the WCNSS device configuration */
 	pdata = pdev->dev.platform_data;
 	if (WCNSS_CONFIG_UNSPECIFIED == has_48mhz_xo) {
@@ -2806,7 +2814,7 @@ static ssize_t wcnss_wlan_write(struct file *fp, const char __user
 		return -EFAULT;
 
 	if ((UINT32_MAX - count < penv->user_cal_rcvd) ||
-	     MAX_CALIBRATED_DATA_SIZE < count + penv->user_cal_rcvd) {
+		(penv->user_cal_exp_size < count + penv->user_cal_rcvd)) {
 		pr_err(DEVICE " invalid size to write %d\n", count +
 				penv->user_cal_rcvd);
 		rc = -ENOMEM;
@@ -2898,6 +2906,9 @@ wcnss_wlan_probe(struct platform_device *pdev)
 	mutex_init(&penv->vbat_monitor_mutex);
 	mutex_init(&penv->pm_qos_mutex);
 	init_waitqueue_head(&penv->read_wait);
+
+	/* populate serial_number during init */
+	penv->serial_number = system_serial_low;
 
 	/* Since we were built into the kernel we'll be called as part
 	 * of kernel initialization.  We don't know if userspace

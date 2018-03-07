@@ -475,7 +475,6 @@ static void devpts_kill_sb(struct super_block *sb)
 {
 	struct pts_fs_info *fsi = DEVPTS_SB(sb);
 
-	ida_destroy(&fsi->allocated_ptys);
 	kfree(fsi);
 	kill_litter_super(sb);
 }
@@ -485,7 +484,6 @@ static struct file_system_type devpts_fs_type = {
 	.mount		= devpts_mount,
 	.kill_sb	= devpts_kill_sb,
 };
-MODULE_ALIAS_FS("devpts");
 
 /*
  * The normal naming convention is simply /dev/pts/<number>; this conforms

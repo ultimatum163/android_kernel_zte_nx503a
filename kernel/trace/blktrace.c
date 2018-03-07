@@ -15,6 +15,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
+#define REALLY_WANT_DEBUGFS
 #include <linux/kernel.h>
 #include <linux/blkdev.h>
 #include <linux/blktrace_api.h>
@@ -198,6 +199,12 @@ static void __blk_add_trace(struct blk_trace *bt, sector_t sector, int bytes,
 	pid_t pid;
 	int cpu, pc = 0;
 	bool blk_tracer = blk_tracer_enabled;
+#ifdef CONFIG_MOST
+	int gblk_index, loop_count;
+	sector_t sector_trans;
+	struct task_struct *tsk_orig = NULL;
+	int temp_file;
+#endif
 
 	if (unlikely(bt->trace_state != Blktrace_running && !blk_tracer))
 		return;
@@ -214,6 +221,36 @@ static void __blk_add_trace(struct blk_trace *bt, sector_t sector, int bytes,
 	if (act_log_check(bt, what, sector, pid))
 		return;
 	cpu = raw_smp_processor_id();
+#ifdef CONFIG_MOST
+	loop_count = MOST_TABLE_SIZE-1;
+
+	if (gblk_current == 0)
+		gblk_index = MOST_TABLE_SIZE-1;
+	else
+		gblk_index = gblk_current-1;
+
+	if (sector >= bt->start_lba)
+		sector_trans = sector - bt->start_lba;
+	else
+		sector_trans = 0;
+
+	temp_file = 0;
+	do {
+		if (sector_trans == gblk_req_table[gblk_index].sector) {
+			pid = gblk_req_table[gblk_index].tgid;
+			temp_file = gblk_req_table[gblk_index].temp_file;
+			tsk_orig = find_task_by_vpid(pid);
+			pid = pid + temp_file;
+			printk(KERN_INFO "__blk_add_trace (%s)\n",
+				gblk_req_table[gblk_index].d_iname);
+			break;
+		}
+		if (gblk_index == 0)
+			gblk_index = MOST_TABLE_SIZE-1;
+		else
+			gblk_index--;
+	} while (loop_count--);
+#endif
 
 	if (blk_tracer) {
 		tracing_record_cmdline(current);
@@ -236,8 +273,21 @@ static void __blk_add_trace(struct blk_trace *bt, sector_t sector, int bytes,
 	 */
 	local_irq_save(flags);
 
+#ifdef CONFIG_MOST
+	{
+		if (tsk_orig != NULL) {
+			tsk_orig->btrace_seq = blktrace_seq;
+			trace_note(bt, pid , BLK_TN_PROCESS,
+				tsk_orig->comm, sizeof(tsk_orig->comm));
+		} else
+			trace_note_tsk(bt, tsk);
+	}
+#else
+	{
 	if (unlikely(tsk->btrace_seq != blktrace_seq))
 		trace_note_tsk(bt, tsk);
+	}
+#endif
 
 	t = relay_reserve(bt->rchan, sizeof(*t) + pdu_len);
 	if (t) {
@@ -685,7 +735,6 @@ void blk_trace_shutdown(struct request_queue *q)
  * blk_add_trace_rq - Add a trace for a request oriented action
  * @q:		queue the io is for
  * @rq:		the source request
- * @nr_bytes:	number of completed bytes
  * @what:	the action
  *
  * Description:
@@ -693,7 +742,7 @@ void blk_trace_shutdown(struct request_queue *q)
  *
  **/
 static void blk_add_trace_rq(struct request_queue *q, struct request *rq,
-			     unsigned int nr_bytes, u32 what)
+			     u32 what)
 {
 	struct blk_trace *bt = q->blk_trace;
 
@@ -702,11 +751,11 @@ static void blk_add_trace_rq(struct request_queue *q, struct request *rq,
 
 	if (rq->cmd_type == REQ_TYPE_BLOCK_PC) {
 		what |= BLK_TC_ACT(BLK_TC_PC);
-		__blk_add_trace(bt, 0, nr_bytes, rq->cmd_flags,
+		__blk_add_trace(bt, 0, blk_rq_bytes(rq), rq->cmd_flags,
 				what, rq->errors, rq->cmd_len, rq->cmd);
 	} else  {
 		what |= BLK_TC_ACT(BLK_TC_FS);
-		__blk_add_trace(bt, blk_rq_pos(rq), nr_bytes,
+		__blk_add_trace(bt, blk_rq_pos(rq), blk_rq_bytes(rq),
 				rq->cmd_flags, what, rq->errors, 0, NULL);
 	}
 }
@@ -714,34 +763,33 @@ static void blk_add_trace_rq(struct request_queue *q, struct request *rq,
 static void blk_add_trace_rq_abort(void *ignore,
 				   struct request_queue *q, struct request *rq)
 {
-	blk_add_trace_rq(q, rq, blk_rq_bytes(rq), BLK_TA_ABORT);
+	blk_add_trace_rq(q, rq, BLK_TA_ABORT);
 }
 
 static void blk_add_trace_rq_insert(void *ignore,
 				    struct request_queue *q, struct request *rq)
 {
-	blk_add_trace_rq(q, rq, blk_rq_bytes(rq), BLK_TA_INSERT);
+	blk_add_trace_rq(q, rq, BLK_TA_INSERT);
 }
 
 static void blk_add_trace_rq_issue(void *ignore,
 				   struct request_queue *q, struct request *rq)
 {
-	blk_add_trace_rq(q, rq, blk_rq_bytes(rq), BLK_TA_ISSUE);
+	blk_add_trace_rq(q, rq, BLK_TA_ISSUE);
 }
 
 static void blk_add_trace_rq_requeue(void *ignore,
 				     struct request_queue *q,
 				     struct request *rq)
 {
-	blk_add_trace_rq(q, rq, blk_rq_bytes(rq), BLK_TA_REQUEUE);
+	blk_add_trace_rq(q, rq, BLK_TA_REQUEUE);
 }
 
 static void blk_add_trace_rq_complete(void *ignore,
 				      struct request_queue *q,
-				      struct request *rq,
-				      unsigned int nr_bytes)
+				      struct request *rq)
 {
-	blk_add_trace_rq(q, rq, nr_bytes, BLK_TA_COMPLETE);
+	blk_add_trace_rq(q, rq, BLK_TA_COMPLETE);
 }
 
 /**

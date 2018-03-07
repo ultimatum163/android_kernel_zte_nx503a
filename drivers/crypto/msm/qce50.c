@@ -2008,10 +2008,6 @@ static int _sha_complete(struct qce_device *pce_dev)
 	uint32_t status;
 
 	areq = (struct ahash_request *) pce_dev->areq;
-	if (!areq) {
-		pr_err("sha operation error. areq is NULL\n");
-		return -ENXIO;
-	}
 	qce_dma_unmap_sg(pce_dev->pdev, areq->src, pce_dev->src_nents,
 				DMA_TO_DEVICE);
 	memcpy(digest, (char *)(&pce_dev->ce_sps.result->auth_iv[0]),
@@ -4835,9 +4831,9 @@ int qce_process_sha_req(void *handle, struct qce_sha_req *sreq)
 	if (_qce_sps_add_sg_data(pce_dev, areq->src, areq->nbytes,
 						 &pce_dev->ce_sps.in_transfer))
 		goto bad;
-	if (areq->nbytes)
-		_qce_set_flag(&pce_dev->ce_sps.in_transfer,
-					SPS_IOVEC_FLAG_EOT|SPS_IOVEC_FLAG_NWD);
+	_qce_set_flag(&pce_dev->ce_sps.in_transfer,
+				SPS_IOVEC_FLAG_EOT|SPS_IOVEC_FLAG_NWD);
+
 	if (_qce_sps_add_data(GET_PHYS_ADDR(pce_dev->ce_sps.result_dump),
 					CRYPTO_RESULT_DUMP_SIZE,
 					  &pce_dev->ce_sps.out_transfer))

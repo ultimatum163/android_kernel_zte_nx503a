@@ -572,9 +572,7 @@ static void spi_pump_messages(struct kthread_work *work)
 	ret = master->transfer_one_message(master, master->cur_msg);
 	if (ret) {
 		dev_err(&master->dev,
-			"failed to transfer one message from queue: %d\n", ret);
-		master->cur_msg->status = ret;
-		spi_finalize_current_message(master);
+			"failed to transfer one message from queue\n");
 		return;
 	}
 }
@@ -833,7 +831,8 @@ static struct class spi_master_class = {
  *
  * The caller is responsible for assigning the bus number and initializing
  * the master's methods before calling spi_register_master(); and (after errors
- * adding the device) calling spi_master_put() to prevent a memory leak.
+ * adding the device) calling spi_master_put() and kfree() to prevent a memory
+ * leak.
  */
 struct spi_master *spi_alloc_master(struct device *dev, unsigned size)
 {
@@ -848,7 +847,7 @@ struct spi_master *spi_alloc_master(struct device *dev, unsigned size)
 
 	device_initialize(&master->dev);
 	master->dev.class = &spi_master_class;
-	master->dev.parent = dev;
+	master->dev.parent = get_device(dev);
 	spi_master_set_devdata(master, &master[1]);
 
 	return master;
@@ -1396,12 +1395,18 @@ int spi_write_then_read(struct spi_device *spi,
 	struct spi_transfer	x[2];
 	u8			*local_buf;
 
-	/* Use preallocated DMA-safe buffer.  We can't avoid copying here,
-	 * (as a pure convenience thing), but we can keep heap costs
-	 * out of the hot path ...
+	/* Use preallocated DMA-safe buffer if we can.  We can't avoid
+	 * copying here, (as a pure convenience thing), but we can
+	 * keep heap costs out of the hot path unless someone else is
+	 * using the pre-allocated buffer or the transfer is too large.
 	 */
-	if ((n_tx + n_rx) > SPI_BUFSIZ)
-		return -EINVAL;
+	if ((n_tx + n_rx) > SPI_BUFSIZ || !mutex_trylock(&lock)) {
+		local_buf = kmalloc(max(SPI_BUFSIZ,(int)(n_tx + n_rx)), GFP_KERNEL);
+		if (!local_buf)
+			return -ENOMEM;
+	} else {
+		local_buf = buf;
+	}
 
 	spi_message_init(&message);
 	memset(x, 0, sizeof x);
@@ -1413,14 +1418,6 @@ int spi_write_then_read(struct spi_device *spi,
 		x[1].len = n_rx;
 		spi_message_add_tail(&x[1], &message);
 	}
-
-	/* ... unless someone else is using the pre-allocated buffer */
-	if (!mutex_trylock(&lock)) {
-		local_buf = kmalloc(SPI_BUFSIZ, GFP_KERNEL);
-		if (!local_buf)
-			return -ENOMEM;
-	} else
-		local_buf = buf;
 
 	memcpy(local_buf, txbuf, n_tx);
 	x[0].tx_buf = local_buf;

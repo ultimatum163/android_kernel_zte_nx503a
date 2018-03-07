@@ -338,6 +338,7 @@ config ARCH_FSM9900
 	select MSM_GPIOMUX
 	select MULTI_IRQ_HANDLER
 	select PM_DEVFREQ
+	select MSM_DEVFREQ_CPUBW
 	select MSM_PIL
 	select MSM_NATIVE_RESTART
 	select MSM_RESTART_V2
@@ -1836,6 +1837,22 @@ config MSM_RPCSERVER_HANDSET
 	  Support for receiving handset events like headset detect,
 	  headset switch and clamshell state.
 
+config MSM_RMT_STORAGE_CLIENT
+	depends on (ARCH_MSM && MSM_ONCRPCROUTER)
+	default n
+	bool "Remote Storage RPC client"
+	help
+	  Provide RPC mechanism for remote processors to access storage
+	  device on apps processor.
+
+config MSM_RMT_STORAGE_CLIENT_STATS
+	depends on (MSM_RMT_STORAGE_CLIENT && DEBUG_FS)
+	default n
+	bool "Remote storage RPC client performance statistics"
+	help
+	  Collects performance statistics and shows this information
+	  through a debugfs file rmt_storage_stats.
+
 config MSM_DALRPC
 	bool "DAL RPC support"
 	default n
@@ -2322,6 +2339,17 @@ config MSM_TZ_LOG
 	  produced by the Secure code (Trust zone). These messages provide
 	  diagnostic information about TZ operation.
 
+config MSM_TZ_LOG_WDOG_DUMP
+	bool "Dump TZ Log after watchdog reset"
+	depends on MSM_TZ_LOG
+	default n
+	help
+	  There are multiple kinds of fatal errors in TZ can trigger watchdog
+	  reset. From kernel log there is no evidence to tell what's the reset
+	  reason. After enabling this option, kernel will reserve a buffer
+	  to get TZ log backup. After a watchdog reset, kernel can print
+	  the log out.
+
 config MSM_RPM_LOG
 	tristate "MSM Resource Power Manager Log Driver"
 	depends on DEBUG_FS
@@ -2426,6 +2454,16 @@ config MSM_WATCHDOG_V2
 		watchdog times out. It allows for detection of cpu hangs and
 		deadlocks. It does not run during the bootup process, so it will
 		not catch any early lockups.
+
+config MSM_WATCHDOG_CTX_PRINT
+	bool "Print context dump saved by secure mode watchdog handler"
+	default n
+	depends on MSM_WATCHDOG_V2
+	help
+		After enabling this option, kernel will reserve bigger buffer
+		for secure mode watchdog handler to save info. And kernel will
+		try to print the info if it looks valid.
+		If unsure, say N
 
 config MSM_MEMORY_DUMP
 	bool "MSM Memory Dump Support"

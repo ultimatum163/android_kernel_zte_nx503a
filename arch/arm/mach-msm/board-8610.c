@@ -126,6 +126,13 @@ void __init msm8610_init(void)
 	if (socinfo_init() < 0)
 		pr_err("%s: socinfo_init() failed\n", __func__);
 
+	/* TODO: add the rest of MMI specific gpiomux into
+	   msm8610-moto-gpiomux.dtsi to avoid calling
+	   msm8610_init_gpiomux() for MMI platform
+
+		if (!platform_is_msm8610_moto())
+			msm8610_init_gpiomux();
+	 */
 	msm8610_init_gpiomux();
 	board_dt_populate(adata);
 	msm8610_add_drivers();
@@ -136,7 +143,7 @@ static const char *msm8610_dt_match[] __initconst = {
 	NULL
 };
 
-DT_MACHINE_START(MSM8610_DT, "Qualcomm MSM 8x10 / MSM 8x12 (Flattened Device Tree)")
+DT_MACHINE_START(MSM8610_DT, "Qualcomm MSM 8610 (Flattened Device Tree)")
 	.map_io = msm_map_msm8610_io,
 	.init_irq = msm_dt_init_irq,
 	.init_machine = msm8610_init,

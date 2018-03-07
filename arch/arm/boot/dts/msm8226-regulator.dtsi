@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -103,7 +103,6 @@
 		qcom,cpr-fuse-redun-target-quot = <24 12 0>;
 		qcom,cpr-fuse-redun-ro-sel = <46 36 39>;
 
-		qcom,cpr-enable;
 		qcom,cpr-fuse-cond-min-volt-sel = <54 42 6 7 1>;
 		qcom,cpr-cond-min-voltage = <1140000>;
 		qcom,cpr-fuse-uplift-sel = <22 53 1 0 0>;
@@ -527,8 +526,4 @@
 
 &pm8226_chg_otg {
 	regulator-name = "8226_smbbp_otg";
-};
-
-&pm8226_chg_chgr {
-	regulator-name = "flash_wa";
 };

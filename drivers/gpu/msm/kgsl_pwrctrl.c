@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014,2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -483,12 +483,19 @@ static int kgsl_pwrctrl_gpuclk_show(struct device *dev,
 				    struct device_attribute *attr,
 				    char *buf)
 {
+	unsigned long freq;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
 	if (device == NULL)
 		return 0;
 	pwr = &device->pwrctrl;
-	return snprintf(buf, PAGE_SIZE, "%ld\n", kgsl_pwrctrl_active_freq(pwr));
+
+	if (device->state == KGSL_STATE_SLUMBER)
+		freq = pwr->pwrlevels[pwr->num_pwrlevels - 1].gpu_freq;
+	else
+		freq = kgsl_pwrctrl_active_freq(pwr);
+
+	return snprintf(buf, PAGE_SIZE, "%lu\n", freq);
 }
 
 static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
@@ -525,6 +532,7 @@ static int kgsl_pwrctrl_idle_timer_show(struct device *dev,
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	if (device == NULL)
 		return 0;
+
 	/* Show the idle_timeout in msec */
 	return snprintf(buf, PAGE_SIZE, "%d\n",
 		jiffies_to_msecs(device->pwrctrl.interval_timeout));
@@ -1133,7 +1141,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	if (!pwr->pcl) {
 		KGSL_PWR_ERR(device,
 				"msm_bus_scale_register_client failed: "
-				"id %d table %p", device->id,
+				"id %d table %pK", device->id,
 				pdata->bus_scale_table);
 		result = -EINVAL;
 		goto done;

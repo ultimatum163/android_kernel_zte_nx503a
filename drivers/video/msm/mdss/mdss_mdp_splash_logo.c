@@ -230,14 +230,16 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 		}
 	}
 
+	mdss_mdp_ctl_splash_finish(ctl, mdp5_data->handoff);
+
+	 /* Add all the handed off pipes to the cleanup list after
+	    TG OFF*/
 	if (rc || mdp5_data->handoff) {
 		/* Add all the handed off pipes to the cleanup list */
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_RGB);
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_VIG);
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_DMA);
 	}
-
-	mdss_mdp_ctl_splash_finish(ctl, mdp5_data->handoff);
 
 	if (mdp5_data->splash_mem_addr) {
 		/* Give back the reserved memory to the system */

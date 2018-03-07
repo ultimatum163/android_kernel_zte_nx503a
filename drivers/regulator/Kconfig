@@ -102,17 +102,6 @@ config REGULATOR_DA9052
 	  This driver supports the voltage regulators of DA9052-BC and
 	  DA9053-AA/Bx PMIC.
 
-config REGULATOR_FAN53555
-	tristate "Fairchild FAN53555 Regulator"
-	depends on I2C
-	select REGMAP_I2C
-	help
-	  This driver supports Fairchild FAN53555 Digitally Programmable
-	  TinyBuck Regulator. The FAN53555 is a step-down switching voltage
-	  regulator that delivers a digitally programmable output from an
-	  input voltage supply of 2.5V to 5.5V. The output voltage is
-	  programmed through an I2C interface.
-
 config REGULATOR_ANATOP
 	tristate "Freescale i.MX on-chip ANATOP LDO regulators"
 	depends on MFD_ANATOP
@@ -140,15 +129,6 @@ config REGULATOR_MC13892
 	  Say y here to support the regulators found on the Freescale MC13892
 	  PMIC.
 
-config REGULATOR_MEM_ACC
-	tristate "QTI Memory accelerator regulator driver"
-	help
-	 Say y here to enable the memory accelerator driver for Qualcomm
-	 Technologies (QTI) chips. The accelerator controls delays applied
-	 for memory accesses.
-	 This driver configures the power-mode (corner) for the memory
-	 accelerator.
-
 config REGULATOR_ISL6271A
 	tristate "Intersil ISL6271A Power regulator"
 	depends on I2C
@@ -160,6 +140,13 @@ config REGULATOR_88PM8607
 	depends on MFD_88PM860X=y
 	help
 	  This driver supports 88PM8607 voltage regulator chips.
+
+config REGULATOR_ARIZONA
+	tristate "Wolfson Arizona class devices"
+	depends on MFD_ARIZONA
+	help
+	  Support for the regulators found on Wolfson Arizona class
+	  devices.
 
 config REGULATOR_MAX1586
 	tristate "Maxim 1586/1587 voltage regulator"
@@ -322,6 +309,14 @@ config REGULATOR_TPS6507X
 	  This driver supports TPS6507X voltage regulator chips. TPS6507X provides
 	  three step-down converters and two general-purpose LDO voltage regulators.
 	  It supports TI's software based Class-2 SmartReflex implementation.
+
+config REGULATOR_TPS65132
+	tristate "TI TPS65135 Power regulator"
+	depends on I2C && OF
+	help
+	  This driver supports TPS65135 voltage regulator chip. This
+	  regulator provides dual +/- 4-6V voltage primarily used for
+	  LCD biasing.
 
 config REGULATOR_TPS65217
 	tristate "TI TPS65217 Power regulators"

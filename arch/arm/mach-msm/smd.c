@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/smd.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2008-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -48,6 +48,7 @@
 #include <mach/ramdump.h>
 #include <mach/board.h>
 #include <mach/msm_smem.h>
+#include <mach/subsystem_restart.h>
 
 #include <asm/cacheflush.h>
 
@@ -2464,7 +2465,7 @@ static int smsm_init(void)
 	j_start = jiffies;
 	while (!remote_spin_trylock_irqsave(remote_spinlock, flags)) {
 		if (jiffies_to_msecs(jiffies - j_start) > RSPIN_INIT_WAIT_MS) {
-			panic("%s: Remote processor %d will not release spinlock\n",
+			PR_BUG("%s: Remote processor %d will not release spinlock\n",
 				__func__, remote_spin_owner(remote_spinlock));
 		}
 	}
@@ -3197,6 +3198,10 @@ void smd_post_init(bool is_legacy, unsigned remote_pid)
 		smd_alloc_loopback_channel();
 		for (i = 1; i < NUM_SMD_SUBSYSTEMS; ++i)
 			schedule_work(&remote_info[i].probe_work);
+		local_bh_disable();
+		smd_fake_irq_handler(0);
+		local_bh_enable();
+
 	} else {
 		schedule_work(&remote_info[remote_pid].probe_work);
 	}
@@ -3340,13 +3345,13 @@ int __init msm_smd_init(void)
 	if (registered)
 		return 0;
 
-	smd_log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smd", 0);
+	smd_log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smd");
 	if (!smd_log_ctx) {
 		pr_err("%s: unable to create SMD logging context\n", __func__);
 		msm_smd_debug_mask = 0;
 	}
 
-	smsm_log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smsm", 0);
+	smsm_log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smsm");
 	if (!smsm_log_ctx) {
 		pr_err("%s: unable to create SMSM logging context\n", __func__);
 		msm_smd_debug_mask = 0;

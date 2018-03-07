@@ -4,7 +4,7 @@
  * Copyright (C) 2008 Lai Jiangshan <laijs@cn.fujitsu.com>
  *
  */
-
+#define REALLY_WANT_DEBUGFS
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
@@ -268,9 +268,6 @@ static int t_show(struct seq_file *m, void *v)
 	const char **fmt = v;
 	const char *str = *fmt;
 	int i;
-
-	if (!*fmt)
-		return 0;
 
 	seq_printf(m, "0x%lx : \"", *(unsigned long *)fmt);
 

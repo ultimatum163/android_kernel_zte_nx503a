@@ -1811,7 +1811,7 @@ static void bke_switch(
 	uint32_t reg_val, val, cur_val;
 
 	val = req << M_BKE_EN_EN_SHFT;
-	reg_val = readl_relaxed(M_BKE_EN_ADDR(baddr, mas_index)); 
+	reg_val = readl_relaxed(M_BKE_EN_ADDR(baddr, mas_index));
 	cur_val = reg_val & M_BKE_EN_RMSK;
 	if (val == cur_val)
 		return;

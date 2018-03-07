@@ -283,9 +283,10 @@ static struct usb_descriptor_header *gser_ss_function[] = {
 };
 
 /* string descriptors: */
-
+#define STRING_INTERFACE        0
+/* Port 0 */
 static struct usb_string gser_string_defs[] = {
-	[0].s = "Generic Serial",
+	[STRING_INTERFACE].s = "Motorola Communication Interface",
 	{  } /* end of list */
 };
 
@@ -296,6 +297,38 @@ static struct usb_gadget_strings gser_string_table = {
 
 static struct usb_gadget_strings *gser_strings[] = {
 	&gser_string_table,
+	NULL,
+};
+
+/* Port 1 */
+static struct usb_string nmea_string_defs[] = {
+	[STRING_INTERFACE].s = "Motorola QC NMEA Interface",
+	{  } /* end of list */
+};
+
+static struct usb_gadget_strings nmea_string_table = {
+	.language =		0x0409,	/* en-us */
+	.strings =		nmea_string_defs,
+};
+
+static struct usb_gadget_strings *nmea_strings[] = {
+	&nmea_string_table,
+	NULL,
+};
+
+/* Port 2 */
+static struct usb_string modem2_string_defs[] = {
+	[STRING_INTERFACE].s = "Motorola QC Modem2 Interface",
+	{  } /* end of list */
+};
+
+static struct usb_gadget_strings modem2_string_table = {
+	.language =		0x0409,	/* en-us */
+	.strings =		modem2_string_defs,
+};
+
+static struct usb_gadget_strings *modem2_strings[] = {
+	&modem2_string_table,
 	NULL,
 };
 
@@ -818,49 +851,33 @@ gser_bind(struct usb_configuration *c, struct usb_function *f)
 	gser->notify_req->context = gser;
 #endif
 
-	/* copy descriptors, and track endpoint copies */
-	f->descriptors = usb_copy_descriptors(gser_fs_function);
-
-	if (!f->descriptors)
-		goto fail;
-
 	/* support all relevant hardware speeds... we expect that when
 	 * hardware is dual speed, all bulk-capable endpoints work at
 	 * both speeds
 	 */
+	gser_hs_in_desc.bEndpointAddress = gser_fs_in_desc.bEndpointAddress;
+	gser_hs_out_desc.bEndpointAddress = gser_fs_out_desc.bEndpointAddress;
+
+	gser_ss_in_desc.bEndpointAddress = gser_fs_in_desc.bEndpointAddress;
+	gser_ss_out_desc.bEndpointAddress = gser_fs_out_desc.bEndpointAddress;
+
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
-		gser_hs_in_desc.bEndpointAddress =
-				gser_fs_in_desc.bEndpointAddress;
-		gser_hs_out_desc.bEndpointAddress =
-				gser_fs_out_desc.bEndpointAddress;
 #ifdef CONFIG_MODEM_SUPPORT
 		gser_hs_notify_desc.bEndpointAddress =
 				gser_fs_notify_desc.bEndpointAddress;
 #endif
-
-		/* copy descriptors, and track endpoint copies */
-		f->hs_descriptors = usb_copy_descriptors(gser_hs_function);
-
-		if (!f->hs_descriptors)
-			goto fail;
-
 	}
 	if (gadget_is_superspeed(c->cdev->gadget)) {
-		gser_ss_in_desc.bEndpointAddress =
-			gser_fs_in_desc.bEndpointAddress;
-		gser_ss_out_desc.bEndpointAddress =
-			gser_fs_out_desc.bEndpointAddress;
 #ifdef CONFIG_MODEM_SUPPORT
 		gser_ss_notify_desc.bEndpointAddress =
 				gser_fs_notify_desc.bEndpointAddress;
 #endif
-
-		/* copy descriptors, and track endpoint copies */
-		f->ss_descriptors = usb_copy_descriptors(gser_ss_function);
-		if (!f->ss_descriptors)
-			goto fail;
 	}
 
+	status = usb_assign_descriptors(f, gser_fs_function, gser_hs_function,
+			gser_ss_function);
+	if (status)
+		goto fail;
 	DBG(cdev, "generic ttyGS%d: %s speed IN/%s OUT/%s\n",
 			gser->port_num,
 			gadget_is_superspeed(c->cdev->gadget) ? "super" :
@@ -869,12 +886,6 @@ gser_bind(struct usb_configuration *c, struct usb_function *f)
 	return 0;
 
 fail:
-	if (f->ss_descriptors)
-		usb_free_descriptors(f->ss_descriptors);
-	if (f->hs_descriptors)
-		usb_free_descriptors(f->hs_descriptors);
-	if (f->descriptors)
-		usb_free_descriptors(f->descriptors);
 #ifdef CONFIG_MODEM_SUPPORT
 	if (gser->notify_req)
 		gs_free_req(gser->notify, gser->notify_req);
@@ -900,11 +911,7 @@ gser_unbind(struct usb_configuration *c, struct usb_function *f)
 #ifdef CONFIG_MODEM_SUPPORT
 	struct f_gser *gser = func_to_gser(f);
 #endif
-	if (gadget_is_dualspeed(c->cdev->gadget))
-		usb_free_descriptors(f->hs_descriptors);
-	if (gadget_is_superspeed(c->cdev->gadget))
-		usb_free_descriptors(f->ss_descriptors);
-	usb_free_descriptors(f->descriptors);
+	usb_free_all_descriptors(f);
 #ifdef CONFIG_MODEM_SUPPORT
 	gs_free_req(gser->notify, gser->notify_req);
 #endif
@@ -926,19 +933,7 @@ gser_unbind(struct usb_configuration *c, struct usb_function *f)
 int gser_bind_config(struct usb_configuration *c, u8 port_num)
 {
 	struct f_gser	*gser;
-	int		status;
-
-	/* REVISIT might want instance-specific strings to help
-	 * distinguish instances ...
-	 */
-
-	/* maybe allocate device-global string ID */
-	if (gser_string_defs[0].id == 0) {
-		status = usb_string_id(c->cdev);
-		if (status < 0)
-			return status;
-		gser_string_defs[0].id = status;
-	}
+	int status = -1;
 
 	/* allocate and initialize one new instance */
 	gser = kzalloc(sizeof *gser, GFP_KERNEL);
@@ -951,7 +946,6 @@ int gser_bind_config(struct usb_configuration *c, u8 port_num)
 	gser->port_num = port_num;
 
 	gser->port.func.name = "gser";
-	gser->port.func.strings = gser_strings;
 	gser->port.func.bind = gser_bind;
 	gser->port.func.unbind = gser_unbind;
 	gser->port.func.set_alt = gser_set_alt;
@@ -959,12 +953,40 @@ int gser_bind_config(struct usb_configuration *c, u8 port_num)
 	gser->transport		= gserial_ports[port_num].transport;
 #ifdef CONFIG_MODEM_SUPPORT
 	/* We support only three ports for now */
-	if (port_num == 0)
+	if (port_num == 0) {
+		if (gser_string_defs[STRING_INTERFACE].id == 0) {
+			status = usb_string_id(c->cdev);
+			if (status < 0)
+				return status;
+			gser_string_defs[STRING_INTERFACE].id = status;
+		}
+		gser_interface_desc.iInterface =
+			gser_string_defs[STRING_INTERFACE].id;
+		gser->port.func.strings = gser_strings;
 		gser->port.func.name = "modem";
-	else if (port_num == 1)
+	} else if (port_num == 1) {
+		if (nmea_string_defs[STRING_INTERFACE].id == 0) {
+			status = usb_string_id(c->cdev);
+			if (status < 0)
+				return status;
+			nmea_string_defs[STRING_INTERFACE].id = status;
+		}
+		gser_interface_desc.iInterface =
+			nmea_string_defs[STRING_INTERFACE].id;
+		gser->port.func.strings = nmea_strings;
 		gser->port.func.name = "nmea";
-	else
+	} else {
+		if (modem2_string_defs[STRING_INTERFACE].id == 0) {
+			status = usb_string_id(c->cdev);
+			if (status < 0)
+				return status;
+			modem2_string_defs[STRING_INTERFACE].id = status;
+		}
+		gser_interface_desc.iInterface =
+			modem2_string_defs[STRING_INTERFACE].id;
+		gser->port.func.strings = modem2_strings;
 		gser->port.func.name = "modem2";
+	}
 	gser->port.func.setup = gser_setup;
 	gser->port.connect = gser_connect;
 	gser->port.get_dtr = gser_get_dtr;

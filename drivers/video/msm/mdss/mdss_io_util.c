@@ -212,7 +212,8 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 				goto vreg_set_opt_mode_fail;
 			}
 			if (in_vreg[i].pre_on_sleep)
-				msleep(in_vreg[i].pre_on_sleep);
+				usleep_range(in_vreg[i].pre_on_sleep * 1000,
+					in_vreg[i].pre_on_sleep * 1000);
 			rc = regulator_set_optimum_mode(in_vreg[i].vreg,
 				in_vreg[i].enable_load);
 			if (rc < 0) {
@@ -223,7 +224,8 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 			}
 			rc = regulator_enable(in_vreg[i].vreg);
 			if (in_vreg[i].post_on_sleep)
-				msleep(in_vreg[i].post_on_sleep);
+				usleep_range(in_vreg[i].post_on_sleep * 1000,
+					in_vreg[i].post_on_sleep * 1000);
 			if (rc < 0) {
 				DEV_ERR("%pS->%s: %s enable failed\n",
 					__builtin_return_address(0), __func__,
@@ -235,12 +237,16 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 		for (i = num_vreg-1; i >= 0; i--)
 			if (regulator_is_enabled(in_vreg[i].vreg)) {
 				if (in_vreg[i].pre_off_sleep)
-					msleep(in_vreg[i].pre_off_sleep);
+					usleep_range(
+					in_vreg[i].pre_off_sleep * 1000,
+					in_vreg[i].pre_off_sleep * 1000);
 				regulator_set_optimum_mode(in_vreg[i].vreg,
 					in_vreg[i].disable_load);
 				regulator_disable(in_vreg[i].vreg);
 				if (in_vreg[i].post_off_sleep)
-					msleep(in_vreg[i].post_off_sleep);
+					usleep_range(
+					in_vreg[i].post_off_sleep * 1000,
+					in_vreg[i].post_off_sleep * 1000);
 			}
 	}
 	return rc;
@@ -251,12 +257,14 @@ disable_vreg:
 vreg_set_opt_mode_fail:
 	for (i--; i >= 0; i--) {
 		if (in_vreg[i].pre_off_sleep)
-			msleep(in_vreg[i].pre_off_sleep);
+			usleep_range(in_vreg[i].pre_off_sleep * 1000,
+				in_vreg[i].pre_off_sleep * 1000);
 		regulator_set_optimum_mode(in_vreg[i].vreg,
 			in_vreg[i].disable_load);
 		regulator_disable(in_vreg[i].vreg);
 		if (in_vreg[i].post_off_sleep)
-			msleep(in_vreg[i].post_off_sleep);
+			usleep_range(in_vreg[i].post_off_sleep * 1000,
+				in_vreg[i].post_off_sleep * 1000);
 	}
 
 	return rc;
@@ -469,42 +477,3 @@ int mdss_i2c_byte_write(struct i2c_client *client, uint8_t slave_addr,
 	pr_debug("%s: I2C write status=%x\n", __func__, status);
 	return status;
 }
-
-/*added by congshan 20130702 start*/
-#if defined(CONFIG_SLIMPORT_ANX7808) || defined(CONFIG_SLIMPORT_ANX7812)
-struct dss_clk slimport_clk;
-
-int slimport_core_clk(struct device *dev)
-{
-	int rc = 0;
-	if (!dev)
-		return 0;
-	pr_err("sss %s in",__func__);
-	slimport_clk.rate = 27000000;
-	snprintf(slimport_clk.clk_name, 32, "%s", "core_clk");
-	slimport_clk.clk = clk_get(dev, slimport_clk.clk_name);
-	if (slimport_clk.clk != NULL) {
-		rc = clk_set_rate(slimport_clk.clk,
-			slimport_clk.rate);
-		if (rc) {
-			DEV_ERR("%pS->%s: %s failed. rc=%d\n",
-			__builtin_return_address(0),
-			__func__,
-			slimport_clk.clk_name, rc);
-		}
-		rc = clk_prepare_enable(slimport_clk.clk);
-		if (rc)
-			DEV_ERR("%pS->%s: %s en fail. rc=%d\n",
-			__builtin_return_address(0),
-			__func__,
-			slimport_clk.clk_name, rc);
-	} else {
-			DEV_ERR("%pS->%s: '%s' is not available\n",
-				__builtin_return_address(0), __func__,
-				slimport_clk.clk_name);
-	}
-	pr_err("sss %s out",__func__);
-	return 0;
-}
-#endif
-/*added by congshan 20130702 end*/

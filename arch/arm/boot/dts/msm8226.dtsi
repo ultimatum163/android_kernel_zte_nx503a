@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,7 +27,7 @@
 	memory {
 		secure_mem: secure_region {
 			linux,contiguous-region;
-			reg = <0 0x6D00000>;
+			reg = <0 0x3800000>;
 			label = "secure_mem";
 		};
 
@@ -300,47 +300,37 @@
 		compatible = "qcom,android-usb";
 		reg = <0xfe8050c8 0xc8>;
 		qcom,android-usb-swfi-latency = <1>;
-		qcom,streaming-func = "rndis";
-		qcom,android-usb-uicc-nluns = <1>;
 	};
 
-	smsc_hub: hsic_hub {
+	hsic_host: hsic@f9a00000 {
 		status = "disabled";
-		compatible = "qcom,hsic-smsc-hub";
-		smsc,model-id = <0>;
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
+		compatible = "qcom,hsic-host";
+		reg = <0xf9a00000 0x400>;
+		#address-cells = <0>;
+		interrupt-parent = <&hsic_host>;
+		interrupts = <0 1 2>;
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0xffffffff>;
+		interrupt-map = <0 &intc 0 136 0
+			1 &intc 0 148 0
+			2 &msmgpio 115 0x8>;
+		interrupt-names = "core_irq", "async_irq", "wakeup";
+		hsic_vdd_dig-supply = <&pm8226_s1_corner>;
+		HSIC_GDSC-supply = <&gdsc_usb_hsic>;
+		hsic,strobe-gpio = <&msmgpio 115 0x00>;
+		hsic,data-gpio = <&msmgpio 116 0x00>;
+		hsic,ignore-cal-pad-config;
+		hsic,strobe-pad-offset = <0x2050>;
+		hsic,data-pad-offset = <0x2054>;
+		qcom,phy-susp-sof-workaround;
+		hsic,vdd-voltage-level = <1 5 7>;
 
-		hsic_host: hsic@f9a00000 {
-			compatible = "qcom,hsic-host";
-			reg = <0xf9a00000 0x400>;
-			#address-cells = <0>;
-			interrupt-parent = <&hsic_host>;
-			interrupts = <0 1 2>;
-			#interrupt-cells = <1>;
-			interrupt-map-mask = <0xffffffff>;
-			interrupt-map = <0 &intc 0 136 0
-				1 &intc 0 148 0
-				2 &msmgpio 115 0x8>;
-			interrupt-names = "core_irq", "async_irq", "wakeup";
-			hsic_vdd_dig-supply = <&pm8226_s1_corner>;
-			HSIC_GDSC-supply = <&gdsc_usb_hsic>;
-			hsic,strobe-gpio = <&msmgpio 115 0x00>;
-			hsic,data-gpio = <&msmgpio 116 0x00>;
-			hsic,ignore-cal-pad-config;
-			hsic,strobe-pad-offset = <0x2050>;
-			hsic,data-pad-offset = <0x2054>;
-			qcom,phy-susp-sof-workaround;
-			hsic,vdd-voltage-level = <1 5 7>;
-
-			qcom,msm-bus,name = "hsic";
-			qcom,msm-bus,num-cases = <2>;
-			qcom,msm-bus,num-paths = <1>;
-			qcom,msm-bus,vectors-KBps =
+		qcom,msm-bus,name = "hsic";
+		qcom,msm-bus,num-cases = <2>;
+		qcom,msm-bus,num-paths = <1>;
+		qcom,msm-bus,vectors-KBps =
 				<85 512 0 0>,
 				<85 512 40000 160000>;
-		};
 	};
 
 	wcd9xxx_intc: wcd9xxx-irq {
@@ -495,10 +485,6 @@
 
 	qcom,msm-lsm-client {
 		compatible = "qcom,msm-lsm-client";
-	};
-
-	qti,msm-pcm-loopback {
-		compatible = "qti,msm-pcm-loopback";
 	};
 
 	qcom,msm-voice-svc {
@@ -660,15 +646,21 @@
 
 	qcom,msm-adsp-sensors {
 		compatible = "qcom,msm-adsp-sensors";
+		qcom,src-id = <11>;
+		qcom,dst-id = <604>;
+		qcom,ab = <32505856>;
+		qcom,ib = <32505856>;
 	};
 
 	qcom,wdt@f9017000 {
 		compatible = "qcom,msm-watchdog";
 		reg = <0xf9017000 0x1000>;
 		interrupts = <0 3 0>, <0 4 0>;
-		qcom,bark-time = <11000>;
+		qcom,bark-time = <22000>;
 		qcom,pet-time = <10000>;
 		qcom,ipi-ping;
+		qcom,memory-reservation-type = "EBI1";
+		qcom,memory-reservation-size = <0xb000>;
 	};
 
 	qcom,smem@fa00000 {
@@ -990,8 +982,27 @@
 		qcom,pmic-arb-channel = <0>;
 	};
 
-	i2c@f9925000 { /* BLSP-1 QUP-3 */
+	i2c_2: i2c@f9924000 { /* BLSP-1 QUP-2 */
 		cell-index = <2>;
+		compatible = "qcom,i2c-qup";
+		reg = <0xf9924000 0x1000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "qup_phys_addr";
+		interrupts = <0 96 0>;
+		interrupt-names = "qup_err_intr";
+		qcom,i2c-bus-freq = <100000>;
+		qcom,i2c-src-freq = <19200000>;
+		qcom,sda-gpio = <&msmgpio 6 0>;
+		qcom,scl-gpio = <&msmgpio 7 0>;
+		qcom,noise-rjct-scl = <1>;
+		qcom,noise-rjct-sda = <1>;
+		qcom,master-id = <86>;
+		status = "disabled";
+	};
+
+	i2c_3: i2c@f9925000 { /* BLSP-1 QUP-3 */
+		cell-index = <3>;
 		compatible = "qcom,i2c-qup";
 		reg = <0xf9925000 0x1000>;
 		#address-cells = <1>;
@@ -1004,8 +1015,10 @@
 		qcom,sda-gpio = <&msmgpio 10 0>;
 		qcom,scl-gpio = <&msmgpio 11 0>;
 		qcom,master-id = <86>;
+		status = "disabled";
 	};
-	i2c_0: i2c@f9926000 { /* BLSP-1 QUP-4 */
+
+	i2c@f9926000 { /* BLSP-1 QUP-4 */
 		cell-index = <0>;
 		compatible = "qcom,i2c-qup";
 		reg = <0xf9926000 0x1000>;
@@ -1015,7 +1028,6 @@
 		interrupts = <0 98 0>;
 		interrupt-names = "qup_err_intr";
 		qcom,i2c-bus-freq = <100000>;
-		qcom,i2c-src-freq = <19200000>;
 		qcom,master-id = <86>;
 	};
 
@@ -1032,6 +1044,7 @@
 		qcom,i2c-src-freq = <19200000>;
 		qcom,sda-gpio = <&msmgpio 18 0>;
 		qcom,scl-gpio = <&msmgpio 19 0>;
+		qcom,master-id = <86>;
 	};
 
 	qcom,clock-a7@f9011050 {
@@ -1073,9 +1086,7 @@
 			< 1344000 4066 >,
 			< 1401600 4066 >,
 			< 1497600 4066 >,
-			< 1593600 4066 >,
-			< 1689600 4066 >,
-			< 1785600 4066 >;
+			< 1593600 4066 >;
 	};
 
 	qcom,ocmem@fdd00000 {
@@ -1249,7 +1260,7 @@
 		qcom,gpio-mosi = <&msmgpio 0 0>;
 		qcom,gpio-miso = <&msmgpio 1 0>;
 		qcom,gpio-clk  = <&msmgpio 3 0>;
-		qcom,gpio-cs0  = <&msmgpio 22 0>;
+		qcom,gpio-cs0  = <&msmgpio 2 0>;
 
 		qcom,infinite-mode = <0>;
 		qcom,use-bam;
@@ -1286,6 +1297,8 @@
 	qcom,tz-log@fe805720 {
 		compatible = "qcom,tz-log";
 		reg = <0x0fe805720 0x1000>;
+		qcom,memory-reservation-type = "EBI1";
+		qcom,memory-reservation-size = <0x1000>;
 	};
 
 	jtag_fuse: jtagfuse@fc4be024 {
@@ -1390,12 +1403,6 @@
 		compatible = "arm,cortex-a7-pmu";
 		qcom,irq-is-percpu;
 		interrupts = <1 7 0xf00>;
-	};
-
-	bimc_sharedmem {
-		compatible = "qcom,sharedmem-uio";
-		reg = <0xfc380000 0x00100000>;
-		reg-names = "bimc";
 	};
 };
 
@@ -1625,4 +1632,8 @@
 	qcom,chg-misc@1600 {
 		status = "ok";
 	};
+};
+
+&pm8226_bms {
+	status = "ok";
 };

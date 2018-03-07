@@ -353,10 +353,10 @@ static const struct input_device_id adreno_input_ids[] = {
 	{
 		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
 		.evbit = { BIT_MASK(EV_ABS) },
-		/* assumption: MT_.._X & MT_.._Y are in the same long */
 		.absbit = { [BIT_WORD(ABS_MT_POSITION_X)] =
-				BIT_MASK(ABS_MT_POSITION_X) |
-				BIT_MASK(ABS_MT_POSITION_Y) },
+			BIT_MASK(ABS_MT_POSITION_X) |
+			BIT_MASK(ABS_MT_POSITION_Y) |
+			BIT_MASK(ABS_MT_TRACKING_ID) },
 	},
 	{ },
 };
@@ -2542,7 +2542,7 @@ static ssize_t _ft_hang_intr_status_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	unsigned int new_setting, old_setting;
+	unsigned int new_setting = 0, old_setting;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct adreno_device *adreno_dev;
 	int ret;

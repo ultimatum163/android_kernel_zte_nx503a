@@ -361,7 +361,7 @@ nomem:
 }
 
 enum {
-	Opt_uid, Opt_gid, Opt_umask, Opt_dmask, Opt_fmask, Opt_err
+	Opt_uid, Opt_gid, Opt_umask, Opt_dmask, Opt_fmask
 };
 
 static const match_table_t tokens = {
@@ -370,7 +370,6 @@ static const match_table_t tokens = {
 	{Opt_umask, "umask=%o"},
 	{Opt_dmask, "dmask=%o"},
 	{Opt_fmask, "fmask=%o"},
-	{Opt_err, NULL},
 };
 
 static int parse_options(char *options, struct omfs_sb_info *sbi)
@@ -569,7 +568,6 @@ static struct file_system_type omfs_fs_type = {
 	.kill_sb = kill_block_super,
 	.fs_flags = FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("omfs");
 
 static int __init init_omfs_fs(void)
 {

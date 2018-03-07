@@ -919,7 +919,6 @@ adreno_get_rptr(struct adreno_ringbuffer *rb)
 	adreno_readreg(adreno_dev, ADRENO_REG_CP_RB_RPTR, &result);
 	return result;
 }
-
 /*
  * adreno_set_protected_registers() - Protect the specified range of registers
  * from being accessed by the GPU

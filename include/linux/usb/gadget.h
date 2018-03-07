@@ -472,6 +472,8 @@ struct usb_gadget_ops {
 			struct usb_gadget_driver *);
 	int	(*udc_stop)(struct usb_gadget *,
 			struct usb_gadget_driver *);
+	int     (*vbus_set_charge_enabled) (struct usb_gadget *, int is_on);
+	int     (*vbus_get_charge_enabled) (struct usb_gadget *);
 
 	/* Those two are deprecated */
 	int	(*start)(struct usb_gadget_driver *,
@@ -509,7 +511,6 @@ struct usb_gadget_ops {
  * @usb_core_id: Identifies the usb core controlled by this usb_gadget.
  *		 Used in case of more then one core operates concurrently.
  * @streaming_enabled: Enable streaming mode with usb core.
- * @xfer_isr_count: UI (transfer complete) interrupts count
  *
  * Gadgets have a mostly-portable "gadget driver" implementing device
  * functions, handling all usb configurations and interfaces.  Gadget
@@ -549,7 +550,6 @@ struct usb_gadget {
 	u8				usb_core_id;
 	bool				l1_supported;
 	bool				streaming_enabled;
-	u32				xfer_isr_count;
 };
 
 static inline void set_gadget_data(struct usb_gadget *gadget, void *data)
@@ -684,6 +684,47 @@ static inline int usb_gadget_vbus_connect(struct usb_gadget *gadget)
 	if (!gadget->ops->vbus_session)
 		return -EOPNOTSUPP;
 	return gadget->ops->vbus_session(gadget, 1);
+}
+
+/**
+ * usb_gadget_set_charge_enabled - Notify controller if charging is allowed
+ * unconditionally.
+ * @gadget:The device which now has VBUS power.
+ * @is_on: charging status
+ * Context: can sleep
+ *
+ * This call is used by a gadget driver to notify the controller if
+ * charging is allowed unconditionally. It is assumed by default that
+ * charging at full rate(bMaxPower) is allowed only upon a SET_CONFIGURATION
+ * from the host.
+ *
+ * Returns zero on success, else negative errno.
+ */
+static inline int usb_gadget_set_charge_enabled(struct usb_gadget *gadget,
+						int is_on)
+{
+	if (!gadget->ops->vbus_set_charge_enabled)
+		return -EOPNOTSUPP;
+	return gadget->ops->vbus_set_charge_enabled(gadget, is_on);
+}
+
+/**
+ * usb_gadget_get_charge_enabled - Query the controller if charging is allowed
+ * unconditionally.
+ * @gadget:The device which now has VBUS power.
+ *
+ * This call is used by a transceiver driver to query the controller if
+ * charging is allowed unconditionally. It is assumed by default that
+ * charging at full rate(bMaxPower) is allowed only upon a SET_CONFIGURATION
+ * from the host.
+ *
+ * Returns charging status(0/1) on success, else negative errno.
+ */
+static inline int usb_gadget_get_charge_enabled(struct usb_gadget *gadget)
+{
+	if (!gadget->ops->vbus_get_charge_enabled)
+		return -EOPNOTSUPP;
+	return gadget->ops->vbus_get_charge_enabled(gadget);
 }
 
 /**
@@ -955,6 +996,13 @@ static inline void usb_free_descriptors(struct usb_descriptor_header **v)
 {
 	kfree(v);
 }
+
+struct usb_function;
+int usb_assign_descriptors(struct usb_function *f,
+		struct usb_descriptor_header **fs,
+		struct usb_descriptor_header **hs,
+		struct usb_descriptor_header **ss);
+void usb_free_all_descriptors(struct usb_function *f);
 
 /*-------------------------------------------------------------------------*/
 

@@ -34,7 +34,7 @@
 static void mmc_host_classdev_release(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
-	kfree(host->wlock_name);
+	kfree(host->detect_ws_name);
 	kfree(host);
 }
 
@@ -77,40 +77,16 @@ static int mmc_host_suspend(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
 	int ret = 0;
-	unsigned long flags;
 
 	if (!mmc_use_core_pm(host))
 		return 0;
 
-	spin_lock_irqsave(&host->clk_lock, flags);
-	/*
-	 * let the driver know that suspend is in progress and must
-	 * be aborted on receiving a sdio card interrupt
-	 */
-	host->dev_status = DEV_SUSPENDING;
-	spin_unlock_irqrestore(&host->clk_lock, flags);
 	if (!pm_runtime_suspended(dev)) {
 		ret = mmc_suspend_host(host);
 		if (ret < 0)
 			pr_err("%s: %s: failed: ret: %d\n", mmc_hostname(host),
 			       __func__, ret);
 	}
-	/*
-	 * If SDIO function driver doesn't want to power off the card,
-	 * atleast turn off clocks to allow deep sleep.
-	 */
-	if (!ret && host->card && mmc_card_sdio(host->card) &&
-	    host->ios.clock) {
-		spin_lock_irqsave(&host->clk_lock, flags);
-		host->clk_old = host->ios.clock;
-		host->ios.clock = 0;
-		host->clk_gated = true;
-		spin_unlock_irqrestore(&host->clk_lock, flags);
-		mmc_set_ios(host);
-	}
-	spin_lock_irqsave(&host->clk_lock, flags);
-	host->dev_status = DEV_SUSPENDED;
-	spin_unlock_irqrestore(&host->clk_lock, flags);
 	return ret;
 }
 
@@ -128,7 +104,6 @@ static int mmc_host_resume(struct device *dev)
 			pr_err("%s: %s: failed: ret: %d\n", mmc_hostname(host),
 			       __func__, ret);
 	}
-	host->dev_status = DEV_RESUMED;
 	return ret;
 }
 
@@ -444,10 +419,9 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 
 	spin_lock_init(&host->lock);
 	init_waitqueue_head(&host->wq);
-	host->wlock_name = kasprintf(GFP_KERNEL,
-			"%s_detect", mmc_hostname(host));
-	wake_lock_init(&host->detect_wake_lock, WAKE_LOCK_SUSPEND,
-			host->wlock_name);
+	host->detect_ws_name = kasprintf(GFP_KERNEL, "%s_detect",
+					 mmc_hostname(host));
+	wakeup_source_init(&host->detect_ws, host->detect_ws_name);
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
 #ifdef CONFIG_PM
 	host->pm_notify.notifier_call = mmc_pm_notify;
@@ -635,6 +609,61 @@ static struct attribute_group clk_scaling_attr_grp = {
 	.attrs = clk_scaling_attrs,
 };
 
+static ssize_t show_bad_card(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+	int card_bad;
+	int ret;
+
+	spin_lock(&host->lock);
+	card_bad = host->card_bad;
+	spin_unlock(&host->lock);
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", card_bad);
+
+	return ret;
+}
+
+static ssize_t show_total_requests(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+	unsigned long long requests;
+	int ret;
+
+	spin_lock(&host->lock);
+	requests = host->requests;
+	spin_unlock(&host->lock);
+
+	ret = snprintf(buf, PAGE_SIZE, "%llu\n", requests);
+
+	return ret;
+}
+
+static ssize_t show_total_errors(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+	unsigned long long request_errors;
+	int ret;
+
+	spin_lock(&host->lock);
+	request_errors = host->request_errors;
+	spin_unlock(&host->lock);
+
+	ret = snprintf(buf, PAGE_SIZE, "%llu\n", request_errors);
+
+	return ret;
+}
+
+static DEVICE_ATTR(bad_card, S_IRUGO | S_IWUSR,
+		show_bad_card, NULL);
+static DEVICE_ATTR(total_requests, S_IRUGO | S_IWUSR,
+		show_total_requests, NULL);
+static DEVICE_ATTR(total_errors, S_IRUGO | S_IWUSR,
+		show_total_errors, NULL);
+
 #ifdef CONFIG_MMC_PERF_PROFILING
 static ssize_t
 show_perf(struct device *dev, struct device_attribute *attr, char *buf)
@@ -687,6 +716,9 @@ static DEVICE_ATTR(perf, S_IRUGO | S_IWUSR,
 #endif
 
 static struct attribute *dev_attrs[] = {
+	&dev_attr_bad_card.attr,
+	&dev_attr_total_requests.attr,
+	&dev_attr_total_errors.attr,
 #ifdef CONFIG_MMC_PERF_PROFILING
 	&dev_attr_perf.attr,
 #endif
@@ -793,7 +825,7 @@ void mmc_free_host(struct mmc_host *host)
 	spin_lock(&mmc_host_lock);
 	idr_remove(&mmc_host_idr, host->index);
 	spin_unlock(&mmc_host_lock);
-	wake_lock_destroy(&host->detect_wake_lock);
+	wakeup_source_trash(&host->detect_ws);
 
 	put_device(&host->class_dev);
 }

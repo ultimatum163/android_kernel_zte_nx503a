@@ -494,7 +494,6 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 {
 	struct super_block *s;
 	struct ecryptfs_sb_info *sbi;
-	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
 	struct ecryptfs_dentry_info *root_info;
 	const char *err = "Getting sb failed";
 	struct inode *inode;
@@ -513,7 +512,6 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 		err = "Error parsing options";
 		goto out;
 	}
-	mount_crypt_stat = &sbi->mount_crypt_stat;
 
 	s = sget(fs_type, NULL, set_anon_super, NULL);
 	if (IS_ERR(s)) {
@@ -559,19 +557,11 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 
 	/**
 	 * Set the POSIX ACL flag based on whether they're enabled in the lower
-	 * mount.
+	 * mount. Force a read-only eCryptfs mount if the lower mount is ro.
+	 * Allow a ro eCryptfs mount even when the lower mount is rw.
 	 */
 	s->s_flags = flags & ~MS_POSIXACL;
-	s->s_flags |= path.dentry->d_sb->s_flags & MS_POSIXACL;
-
-	/**
-	 * Force a read-only eCryptfs mount when:
-	 *   1) The lower mount is ro
-	 *   2) The ecryptfs_encrypted_view mount option is specified
-	 */
-	if (path.dentry->d_sb->s_flags & MS_RDONLY ||
-	    mount_crypt_stat->flags & ECRYPTFS_ENCRYPTED_VIEW_ENABLED)
-		s->s_flags |= MS_RDONLY;
+	s->s_flags |= path.dentry->d_sb->s_flags & (MS_RDONLY | MS_POSIXACL);
 
 	s->s_maxbytes = path.dentry->d_sb->s_maxbytes;
 	s->s_blocksize = path.dentry->d_sb->s_blocksize;
@@ -580,7 +570,7 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 
 	rc = -EINVAL;
 	if (s->s_stack_depth > FILESYSTEM_MAX_STACK_DEPTH) {
-		pr_err("eCryptfs: maximum fs stacking depth exceeded\n");
+		printk(KERN_ERR "eCryptfs: maximum fs stacking depth exceeded\n");
 		goto out_free;
 	}
 
@@ -645,7 +635,6 @@ static struct file_system_type ecryptfs_fs_type = {
 	.kill_sb = ecryptfs_kill_block_super,
 	.fs_flags = 0
 };
-MODULE_ALIAS_FS("ecryptfs");
 
 /**
  * inode_info_init_once

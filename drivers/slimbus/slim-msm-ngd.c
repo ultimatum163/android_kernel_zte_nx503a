@@ -1359,7 +1359,7 @@ static int __devinit ngd_slim_probe(struct platform_device *pdev)
 
 	/* Create IPC log context */
 	dev->ipc_slimbus_log = ipc_log_context_create(IPC_SLIMBUS_LOG_PAGES,
-						dev_name(dev->dev), 0);
+						dev_name(dev->dev));
 	if (!dev->ipc_slimbus_log)
 		dev_err(&pdev->dev, "error creating ipc_logging context\n");
 	else {
@@ -1436,8 +1436,8 @@ static int __devinit ngd_slim_probe(struct platform_device *pdev)
 	init_completion(&dev->reconf);
 	init_completion(&dev->ctrl_up);
 	mutex_init(&dev->tx_lock);
-	mutex_init(&dev->ssr_lock);
 	mutex_init(&dev->tx_buf_lock);
+	mutex_init(&dev->ssr_lock);
 	spin_lock_init(&dev->rx_lock);
 	dev->ee = 1;
 	dev->irq = irq->start;

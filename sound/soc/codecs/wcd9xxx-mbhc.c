@@ -51,7 +51,7 @@
 				  SND_JACK_BTN_6 | SND_JACK_BTN_7)
 
 #define NUM_DCE_PLUG_DETECT 3
-#define NUM_DCE_PLUG_INS_DETECT 5
+#define NUM_DCE_PLUG_INS_DETECT 7
 #define NUM_ATTEMPTS_INSERT_DETECT 25
 #define NUM_ATTEMPTS_TO_REPORT 5
 
@@ -64,7 +64,7 @@
 #define BUTTON_MIN 0x8000
 #define STATUS_REL_DETECTION 0x0C
 
-#define HS_DETECT_PLUG_TIME_MS (5 * 1000)
+#define HS_DETECT_PLUG_TIME_MS (2 * 1000)
 #define ANC_HPH_DETECT_PLUG_TIME_MS (5 * 1000)
 #define HS_DETECT_PLUG_INERVAL_MS 100
 #define SWCH_REL_DEBOUNCE_TIME_MS 50
@@ -100,8 +100,8 @@
  * Invalid voltage range for the detection
  * of plug type with current source
  */
-#define WCD9XXX_CS_MEAS_INVALD_RANGE_LOW_MV  266
-#define WCD9XXX_CS_MEAS_INVALD_RANGE_HIGH_MV 265
+#define WCD9XXX_CS_MEAS_INVALD_RANGE_LOW_MV 160
+#define WCD9XXX_CS_MEAS_INVALD_RANGE_HIGH_MV 200
 
 /*
  * Threshold used to detect euro headset
@@ -123,20 +123,12 @@
 #define WCD9XXX_V_CS_HS_MAX 500
 #define WCD9XXX_V_CS_NO_MIC 5
 #define WCD9XXX_MB_MEAS_DELTA_MAX_MV 80
-#define WCD9XXX_CS_MEAS_DELTA_MAX_MV 12
+#define WCD9XXX_CS_MEAS_DELTA_MAX_MV 30
 
 static int impedance_detect_en;
 module_param(impedance_detect_en, int,
 			S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(impedance_detect_en, "enable/disable impedance detect");
-
-// add by wuzehui for headset impedance
-static int impedance;
-module_param(impedance, int,
-			S_IRUGO | S_IWUSR | S_IWGRP);
-MODULE_PARM_DESC(impedance, "enable/disable impedance detect");
-// end
-
 
 static bool detect_use_vddio_switch;
 
@@ -834,19 +826,12 @@ static void wcd9xxx_insert_detect_setup(struct wcd9xxx_mbhc *mbhc, bool ins)
 static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 				enum snd_jack_types jack_type)
 {
+	struct snd_soc_codec *codec = mbhc->codec;
 	WCD9XXX_BCL_ASSERT_LOCKED(mbhc->resmgr);
 
 	pr_debug("%s: enter insertion %d hph_status %x\n",
 		 __func__, insertion, mbhc->hph_status);
 	if (!insertion) {
-        // add by wuzehui for headset impedance
-        impedance = 0;
-#ifdef CONFIG_ZTEMT_AUDIO_HEADSET_SW
-        if(mbhc->mbhc_cfg->sw_gpio){
-            gpio_direction_output(mbhc->mbhc_cfg->sw_gpio,0);
-            pr_debug("Get Gpio .......... %d\n",gpio_get_value_cansleep(mbhc->mbhc_cfg->sw_gpio));
-        }
-#endif
 		/* Report removal */
 		mbhc->hph_status &= ~jack_type;
 		/*
@@ -905,8 +890,8 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 					    0, WCD9XXX_JACK_MASK);
 			mbhc->hph_status &= ~(SND_JACK_HEADSET |
 						SND_JACK_LINEOUT |
-						SND_JACK_ANC_HEADPHONE |
-						SND_JACK_UNSUPPORTED);
+						SND_JACK_UNSUPPORTED|
+						SND_JACK_ANC_HEADPHONE);
 		}
 
 		/* Report insertion */
@@ -935,6 +920,20 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 
 		if (mbhc->impedance_detect && impedance_detect_en)
 			wcd9xxx_detect_impedance(mbhc, &mbhc->zl, &mbhc->zr);
+
+		/*
+		 * Check if we recieve PA TURN ON event from DAPM
+		 * check PA status and turn it ON.
+		*/
+		pr_debug(" mbhc->event_state = %ld\n", mbhc->event_state);
+		if (test_bit(MBHC_EVENT_PA_HPHL, &mbhc->event_state)) {
+			pr_debug(" check if PA is ON\n");
+			if (!wcd9xxx_is_hph_pa_on(codec)) {
+				pr_debug(" PA is OFF, so turn on PA\n");
+				snd_soc_update_bits(codec,
+					WCD9XXX_A_RX_HPH_CNP_EN, 0x30, 0x30);
+			}
+		}
 
 		pr_debug("%s: Reporting insertion %d(%x)\n", __func__,
 			 jack_type, mbhc->hph_status);
@@ -1435,9 +1434,6 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
 			hs_max = WCD9XXX_V_CS_HS_MAX;
 			no_mic = WCD9XXX_V_CS_NO_MIC;
 		}
-		
-		pr_debug("[ZTEMT]%s: dce_z #%04d, mb_mv #%04d, hs_max #%04d, no_mic #%04d\n",
-			 __func__, dce_z, mb_mv, hs_max, no_mic);
 
 		vdce = __wcd9xxx_codec_sta_dce_v(mbhc, true, d->dce,
 						 dce_z, (u32)mb_mv);
@@ -1479,7 +1475,7 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
 			      WCD9XXX_CS_MEAS_DELTA_MAX_MV;
 
 	for (i = 0, d = dt; i < sz; i++, d++) {
-		if ((i > 0) && !d->mic_bias && !d->swap_gnd &&
+		if ((i > 2) && !d->mic_bias && !d->swap_gnd &&
 		    (d->_type != dprev->_type)) {
 			pr_debug("%s: Invalid, inconsistent types\n", __func__);
 			type = PLUG_TYPE_INVALID;
@@ -3240,30 +3236,14 @@ static void wcd9xxx_swch_irq_handler(struct wcd9xxx_mbhc *mbhc)
 				      &mbhc->correct_plug_swch);
 
 		if ((mbhc->current_plug != PLUG_TYPE_NONE) &&
-		    (mbhc->current_plug != PLUG_TYPE_HIGH_HPH) &&
 		    !(snd_soc_read(codec, WCD9XXX_A_MBHC_INSERT_DETECT) &
-				   (1 << 1))) {
-			pr_debug("%s: current plug: %d\n", __func__,
-				mbhc->current_plug);
+				   (1 << 1)))
 			goto exit;
-		}
 
 		/* Disable Mic Bias pull down and HPH Switch to GND */
 		snd_soc_update_bits(codec, mbhc->mbhc_bias_regs.ctl_reg, 0x01,
 				    0x00);
 		snd_soc_update_bits(codec, WCD9XXX_A_MBHC_HPH, 0x01, 0x00);
-#ifdef CONFIG_ZTEMT_AUDIO_HEADSET_SW
-        if(mbhc->mbhc_cfg->sw_gpio){
-            pr_debug("GPIO start get value %d =====\n",gpio_get_value_cansleep(mbhc->mbhc_cfg->sw_gpio));
-            /* Close the NCP for enabling the earphone */
-            msleep(300);
-            gpio_direction_output(mbhc->mbhc_cfg->sw_gpio,0);
-            msleep(100);
-            gpio_direction_output(mbhc->mbhc_cfg->sw_gpio,1);
-            msleep(100);
-            pr_debug("GPIO end get value %d==== \n",gpio_get_value_cansleep(mbhc->mbhc_cfg->sw_gpio));
-        } 
-#endif
 		wcd9xxx_mbhc_detect_plug_type(mbhc);
 	} else if ((mbhc->current_plug != PLUG_TYPE_NONE) && !insert) {
 		mbhc->lpi_enabled = false;
@@ -4943,14 +4923,6 @@ static int wcd9xxx_detect_impedance(struct wcd9xxx_mbhc *mbhc, uint32_t *zl,
 	pr_debug("%s: RL %d milliohm, RR %d milliohm\n", __func__, *zl, *zr);
 	pr_debug("%s: Impedance detection completed\n", __func__);
 
-    // add by wuzehui for headset impedance
-    if(*zl<*zr) {
-        impedance = *zl/1000;
-    } else {
-        impedance = *zr/1000;
-    }
-    // end
-
 	return ret;
 }
 
@@ -5124,7 +5096,6 @@ int wcd9xxx_mbhc_init(struct wcd9xxx_mbhc *mbhc, struct wcd9xxx_resmgr *resmgr,
 
 	wcd9xxx_regmgr_cond_register(resmgr, 1 << WCD9XXX_COND_HPH_MIC |
 					     1 << WCD9XXX_COND_HPH);
-
 
 	pr_debug("%s: leave ret %d\n", __func__, ret);
 	return ret;

@@ -50,14 +50,6 @@
 #define SDIO_DEVICE_ID_MSM_QCA_AR6003_2	0x301
 #endif
 
-#ifndef SDIO_DEVICE_ID_MSM_QCA_AR6004_1
-#define SDIO_DEVICE_ID_MSM_QCA_AR6004_1	0x400
-#endif
-
-#ifndef SDIO_DEVICE_ID_MSM_QCA_AR6004_2
-#define SDIO_DEVICE_ID_MSM_QCA_AR6004_2	0x401
-#endif
-
 /*
  * This hook just adds a quirk for all sdio devices
  */
@@ -84,12 +76,6 @@ static const struct mmc_fixup mmc_fixup_methods[] = {
 		   remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
 
 	SDIO_FIXUP(SDIO_VENDOR_ID_MSM_QCA, SDIO_DEVICE_ID_MSM_QCA_AR6003_2,
-		   remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
-
-	SDIO_FIXUP(SDIO_VENDOR_ID_MSM_QCA, SDIO_DEVICE_ID_MSM_QCA_AR6004_1,
-		   remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
-
-	SDIO_FIXUP(SDIO_VENDOR_ID_MSM_QCA, SDIO_DEVICE_ID_MSM_QCA_AR6004_2,
 		   remove_quirk, MMC_QUIRK_BROKEN_CLK_GATING),
 
 	SDIO_FIXUP(SDIO_VENDOR_ID_TI, SDIO_DEVICE_ID_TI_WL1271,
@@ -123,6 +109,8 @@ void mmc_fixup_device(struct mmc_card *card, const struct mmc_fixup *table)
 			      sizeof(card->cid.prod_name))) &&
 		    (f->ext_csd_rev == EXT_CSD_REV_ANY ||
 		     f->ext_csd_rev == card->ext_csd.rev) &&
+		    (f->ext_csd_fw_ver == EXT_CSD_FW_VER_ANY ||
+		     f->ext_csd_fw_ver == card->ext_csd.firmware_version) &&
 		    (f->cis_vendor == card->cis.vendor ||
 		     f->cis_vendor == (u16) SDIO_ANY_ID) &&
 		    (f->cis_device == card->cis.device ||

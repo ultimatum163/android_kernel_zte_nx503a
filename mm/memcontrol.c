@@ -230,8 +230,8 @@ struct mem_cgroup {
 	struct res_counter res;
 
 	/* vmpressure notifications */
- 	struct vmpressure vmpressure;
- 
+	struct vmpressure vmpressure;
+
 	union {
 		/*
 		 * the counter to account for mem+swap usage.
@@ -4377,13 +4377,7 @@ static int compare_thresholds(const void *a, const void *b)
 	const struct mem_cgroup_threshold *_a = a;
 	const struct mem_cgroup_threshold *_b = b;
 
-	if (_a->threshold > _b->threshold)
-		return 1;
-
-	if (_a->threshold < _b->threshold)
-		return -1;
-
-	return 0;
+	return _a->threshold - _b->threshold;
 }
 
 static int mem_cgroup_oom_notify_cb(struct mem_cgroup *memcg)
@@ -4759,9 +4753,9 @@ static struct cftype mem_cgroup_files[] = {
 	},
 	{
 		.name = "pressure_level",
- 		.register_event = vmpressure_register_event,
- 		.unregister_event = vmpressure_unregister_event,
- 	},
+		.register_event = vmpressure_register_event,
+		.unregister_event = vmpressure_unregister_event,
+	},
 #ifdef CONFIG_NUMA
 	{
 		.name = "numa_stat",
@@ -4869,7 +4863,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	if (!memcg->stat)
 		goto out_free;
 	spin_lock_init(&memcg->pcp_counter_lock);
-	vmpressure_init(&memcg->vmpressure);
 	return memcg;
 
 out_free:
@@ -5065,6 +5058,7 @@ mem_cgroup_create(struct cgroup *cont)
 	memcg->move_charge_at_immigrate = 0;
 	mutex_init(&memcg->thresholds_lock);
 	spin_lock_init(&memcg->move_lock);
+	vmpressure_init(&memcg->vmpressure);
 	return &memcg->css;
 free_out:
 	__mem_cgroup_free(memcg);

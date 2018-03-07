@@ -84,7 +84,6 @@ struct disp_info_notify {
 	int value;
 	int is_suspend;
 	int ref_count;
-	bool init_done;
 };
 
 struct msm_sync_pt_data {
@@ -134,8 +133,8 @@ struct msm_mdp_interface {
 	int (*splash_init_fnc)(struct msm_fb_data_type *mfd);
 	struct msm_sync_pt_data *(*get_sync_fnc)(struct msm_fb_data_type *mfd,
 				const struct mdp_buf_sync *buf_sync);
-	void (*check_dsi_status)(struct work_struct *work, uint32_t interval);
 	int (*configure_panel)(struct msm_fb_data_type *mfd, int mode);
+	void (*check_dsi_status)(struct work_struct *work, uint32_t interval);
 	void *private1;
 };
 
@@ -197,7 +196,8 @@ struct msm_fb_data_type {
 	u32 bl_min_lvl;
 	u32 unset_bl_level;
 	u32 bl_updated;
-	u32 bl_level_old;
+	u32 bl_level_scaled;
+	u32 bl_level_prev_scaled;
 	struct mutex bl_lock;
 
 	struct platform_device *pdev;
@@ -232,10 +232,24 @@ struct msm_fb_data_type {
 
 	u32 dcm_state;
 	struct list_head proc_list;
-	u32 wait_for_kickoff;
 	struct ion_client *fb_ion_client;
 	struct ion_handle *fb_ion_handle;
+	u32 wait_for_kickoff;
+
+	int (*quickdraw_fb_cleanup)(struct msm_fb_data_type *mfd);
+	int (*quickdraw_fb_prepare)(struct msm_fb_data_type *mfd);
+	bool quickdraw_in_progress;
+	u32 quickdraw_panel_state;
+	bool quickdraw_reset_panel;
 };
+
+struct sys_panelinfo {
+	char *panel_name;
+	char *panel_supplier;
+	u64 *panel_ver;
+};
+
+extern struct sys_panelinfo panelinfo;
 
 static inline void mdss_fb_update_notify_update(struct msm_fb_data_type *mfd)
 {
@@ -264,6 +278,10 @@ void mdss_fb_signal_timeline(struct msm_sync_pt_data *sync_pt_data);
 struct sync_fence *mdss_fb_sync_get_fence(struct sw_sync_timeline *timeline,
 				const char *fence_name, int val);
 int mdss_fb_register_mdp_instance(struct msm_mdp_interface *mdp);
+int mdss_fb_alloc_fb_ion_memory(struct msm_fb_data_type *mfd, size_t fb_size);
 int mdss_fb_dcm(struct msm_fb_data_type *mfd, int req_state);
-int mdss_fb_suspres_panel(struct device *dev, void *data);
+int mdss_fb_pan_display_ex(struct fb_info *info,
+			   struct mdp_display_commit *disp_commit);
+int mdss_fb_blank_sub(int blank_mode, struct fb_info *info, int op_enable);
+
 #endif /* MDSS_FB_H */

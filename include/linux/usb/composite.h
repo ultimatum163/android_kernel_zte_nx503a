@@ -112,7 +112,7 @@ struct usb_configuration;
 struct usb_function {
 	const char			*name;
 	struct usb_gadget_strings	**strings;
-	struct usb_descriptor_header	**descriptors;
+	struct usb_descriptor_header	**fs_descriptors;
 	struct usb_descriptor_header	**hs_descriptors;
 	struct usb_descriptor_header	**ss_descriptors;
 
@@ -283,11 +283,7 @@ struct usb_composite_driver {
 	const char				*name;
 	const char				*iProduct;
 	const char				*iManufacturer;
-#ifdef CONFIG_ZTEMT_USB
-	struct usb_device_descriptor		*dev;
-#else
 	const struct usb_device_descriptor	*dev;
-#endif
 	struct usb_gadget_strings		**strings;
 	enum usb_device_speed			max_speed;
 	unsigned		needs_serial:1;

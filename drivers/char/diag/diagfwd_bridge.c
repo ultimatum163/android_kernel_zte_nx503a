@@ -133,6 +133,7 @@ int diagfwd_disconnect_bridge(int process_cable)
 			/* If the usb cable is being disconnected */
 			if (process_cable) {
 				diag_bridge[i].usb_connected = 0;
+				usb_diag_free_req(diag_bridge[i].ch);
 			}
 
 			if (i == SMUX) {
@@ -256,7 +257,8 @@ static void diagfwd_bridge_notifier(void *priv, unsigned event,
 		index = (int)(d_req->context);
 		if (index == SMUX && driver->diag_smux_enabled)
 			diagfwd_write_complete_smux();
-		else if (diag_hsic[index].hsic_device_enabled)
+		else if (index < MAX_HSIC_CH &&
+					diag_hsic[index].hsic_device_enabled)
 			diagfwd_write_complete_hsic(d_req, index);
 		break;
 	default:
@@ -382,6 +384,8 @@ void diagfwd_bridge_exit(void)
 	for (i = 0; i < MAX_BRIDGES; i++) {
 		if (diag_bridge[i].enabled) {
 #ifdef CONFIG_DIAG_OVER_USB
+			if (diag_bridge[i].usb_connected)
+				usb_diag_free_req(diag_bridge[i].ch);
 			usb_diag_close(diag_bridge[i].ch);
 #endif
 			kfree(diag_bridge[i].usb_buf_out);

@@ -1292,6 +1292,13 @@ set_qf_format:
 					"not specified.");
 			return 0;
 		}
+	} else {
+		if (sbi->s_jquota_fmt) {
+			ext3_msg(sb, KERN_ERR, "error: journaled quota format "
+					"specified with no journaling "
+					"enabled.");
+			return 0;
+		}
 	}
 #endif
 	return 1;
@@ -3047,7 +3054,6 @@ static struct file_system_type ext3_fs_type = {
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("ext3");
 
 static int __init init_ext3_fs(void)
 {

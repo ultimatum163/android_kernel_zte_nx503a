@@ -15,6 +15,7 @@
 #include <linux/seq_file.h>
 #include <linux/kallsyms.h>
 #include <linux/utsname.h>
+#include <mach/mmi_watchdog.h>
 
 #include "sched.h"
 
@@ -215,14 +216,6 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 	SEQ_printf(m, "  .%-30s: %d\n", "load_tg",
 			atomic_read(&cfs_rq->tg->load_weight));
 #endif
-#ifdef CONFIG_CFS_BANDWIDTH
-	SEQ_printf(m, "  .%-30s: %d\n", "tg->cfs_bandwidth.timer_active",
-			cfs_rq->tg->cfs_bandwidth.timer_active);
-	SEQ_printf(m, "  .%-30s: %d\n", "throttled",
-			cfs_rq->throttled);
-	SEQ_printf(m, "  .%-30s: %d\n", "throttle_count",
-			cfs_rq->throttle_count);
-#endif
 
 	print_cfs_group_stats(m, cpu, cfs_rq->tg);
 #endif
@@ -374,8 +367,10 @@ static int sched_debug_show(struct seq_file *m, void *v)
 		sysctl_sched_tunable_scaling,
 		sched_tunable_scaling_names[sysctl_sched_tunable_scaling]);
 
-	for_each_online_cpu(cpu)
+	for_each_online_cpu(cpu) {
+		touch_hw_watchdog();
 		print_cpu(m, cpu);
+	}
 
 	SEQ_printf(m, "\n");
 

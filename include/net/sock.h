@@ -329,9 +329,8 @@ struct sock {
 				sk_no_check  : 2,
 				sk_userlocks : 4,
 				sk_protocol  : 8,
-#define SK_PROTOCOL_MAX ((u8)~0U)
+#define SK_PROTOCOL_MAX U8_MAX
 				sk_type      : 16;
-#define SK_PROTOCOL_MAX ((u8)~0U)
 	kmemcheck_bitfield_end(flags);
 	int			sk_wmem_queued;
 	gfp_t			sk_allocation;
@@ -795,18 +794,6 @@ struct timewait_sock_ops;
 struct inet_hashinfo;
 struct raw_hashinfo;
 struct module;
-
-/*
- * caches using SLAB_DESTROY_BY_RCU should let .next pointer from nulls nodes
- * un-modified. Special care is taken when initializing object to zero.
- */
-static inline void sk_prot_clear_nulls(struct sock *sk, int size)
-{
-	if (offsetof(struct sock, sk_node.next) != 0)
-		memset(sk, 0, offsetof(struct sock, sk_node.next));
-	memset(&sk->sk_node.pprev, 0,
-	       size - offsetof(struct sock, sk_node.pprev));
-}
 
 /* Networking protocol blocks we attach to sockets.
  * socket layer -> transport layer interface
@@ -2171,16 +2158,5 @@ extern int sysctl_optmem_max;
 
 extern __u32 sysctl_wmem_default;
 extern __u32 sysctl_rmem_default;
-
-/* SOCKEV Notifier Events */
-#define SOCKEV_SOCKET   0x00
-#define SOCKEV_BIND     0x01
-#define SOCKEV_LISTEN   0x02
-#define SOCKEV_ACCEPT   0x03
-#define SOCKEV_CONNECT  0x04
-#define SOCKEV_SHUTDOWN 0x05
-
-int sockev_register_notify(struct notifier_block *nb);
-int sockev_unregister_notify(struct notifier_block *nb);
 
 #endif	/* _SOCK_H */

@@ -515,7 +515,7 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 		goto fail_id;
 
 	if (blk_throtl_init(q))
-		goto fail_bdi;
+		goto fail_id;
 
 	setup_timer(&q->backing_dev_info.laptop_mode_wb_timer,
 		    laptop_mode_timer_fn, (unsigned long) q);
@@ -540,8 +540,6 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 
 	return q;
 
-fail_bdi:
-	bdi_destroy(&q->backing_dev_info);
 fail_id:
 	ida_simple_remove(&blk_queue_ida, q->id);
 fail_q:
@@ -1241,9 +1239,8 @@ void __blk_put_request(struct request_queue *q, struct request *req)
 
 	elv_completed_request(q, req);
 
-	/* this is a bio leak if the bio is not tagged with BIO_DONTFREE */
-	WARN_ON(req->bio && !bio_flagged(req->bio, BIO_DONTFREE));
-
+	/* this is a bio leak */
+	WARN_ON(req->bio != NULL);
 
 	/*
 	 * Request may not have originated from ll_rw_blk. if not,
@@ -1799,6 +1796,89 @@ void generic_make_request(struct bio *bio)
 }
 EXPORT_SYMBOL(generic_make_request);
 
+#ifdef CONFIG_MOST
+
+struct blk_req_table gblk_req_table[MOST_TABLE_SIZE];
+int gblk_current;
+
+void update_most_table(int rw, struct bio *bio, int count)
+{
+	int tfile = 0;
+	struct inode *inode = NULL;
+	struct list_head *next;
+	struct dentry *dentry;
+	int len;
+	struct page *bpage;
+
+	if (bio->bi_io_vec)
+		bpage = bio->bi_io_vec->bv_page;
+	else
+		goto final;
+
+	if (!(bpage && bpage->mapping))
+		goto final;
+
+	if (bpage->mapping->host)
+		inode = bpage->mapping->host;
+
+	if (PageAnon(bpage))
+		goto final;
+	if (inode && inode->i_ino != 0
+		&& inode->i_dentry.next) {
+		next = inode->i_dentry.next;
+
+		dentry = list_entry(next,
+			struct dentry, d_alias);
+
+		if (dentry) {
+			len = strlen(dentry->d_iname);
+			strlcpy(gblk_req_table[gblk_current].d_iname,
+				dentry->d_iname,
+				sizeof(gblk_req_table[gblk_current].d_iname));
+			if (rw & WRITE) {
+				if (dentry->d_iname[len-8] == '-'
+					&& dentry->d_iname[len-7] == 'j') {
+					tfile = 100000;
+				} else if (dentry->d_iname[len-12] == 'b'
+					&& dentry->d_iname[len-11] == '-'
+					&& dentry->d_iname[len-10] == 'm'
+					&& dentry->d_iname[len-9] == 'j') {
+					tfile = 200000;
+				} else if (dentry->d_iname[len-4] == '.'
+					&& dentry->d_iname[len-3] == 'b'
+					&& dentry->d_iname[len-2] == 'a'
+					&& dentry->d_iname[len-1] == 'k') {
+					tfile = 300000;
+				} else if (dentry->d_iname[len-3] == 't'
+					&& dentry->d_iname[len-2] == 'm'
+					&& dentry->d_iname[len-1] == 'p') {
+					tfile = 400000;
+				} else if (dentry->d_iname[len-3] == '.'
+					&& dentry->d_iname[len-2] == 'd'
+					&& dentry->d_iname[len-1] == 'b') {
+					tfile = 500000;
+				}
+			}
+		}
+	}
+
+final:
+	gblk_req_table[gblk_current].tgid = task_tgid_nr(current);
+	gblk_req_table[gblk_current].pid = task_pid_nr(current);
+	gblk_req_table[gblk_current].temp_file = tfile;
+	gblk_req_table[gblk_current].sector = bio->bi_sector;
+	gblk_req_table[gblk_current].count = count;
+
+	gblk_current++;
+	if (gblk_current == MOST_TABLE_SIZE)
+		gblk_current = 0;
+}
+#else /* !CONFIG_MOST */
+
+#define update_most_table(rw, bio, count) do {} while (0)
+
+#endif /* CONFIG_MOST */
+
 /**
  * submit_bio - submit a bio to the block device layer for I/O
  * @rw: whether to %READ or %WRITE, or maybe to %READA (read ahead)
@@ -1837,6 +1917,7 @@ void submit_bio(int rw, struct bio *bio)
 				bdevname(bio->bi_bdev, b),
 				count);
 		}
+		update_most_table(rw, bio, count);
 	}
 
 	generic_make_request(bio);
@@ -2193,7 +2274,6 @@ void blk_start_request(struct request *req)
 	if (unlikely(blk_bidi_rq(req)))
 		req->next_rq->resid_len = blk_rq_bytes(req->next_rq);
 
-	BUG_ON(test_bit(REQ_ATOM_COMPLETE, &req->atomic_flags));
 	blk_add_timer(req);
 }
 EXPORT_SYMBOL(blk_start_request);
@@ -2254,7 +2334,7 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 	if (!req->bio)
 		return false;
 
-	trace_block_rq_complete(req->q, req, nr_bytes);
+	trace_block_rq_complete(req->q, req);
 
 	/*
 	 * For fs requests, rq is just carrier of independent bio's
@@ -2296,15 +2376,6 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 	blk_account_io_completion(req, nr_bytes);
 
 	total_bytes = bio_nbytes = 0;
-
-	/*
-	 * Check for this if flagged, Req based dm needs to perform
-	 * post processing, hence dont end bios or request.DM
-	 * layer takes care.
-	 */
-	if (bio_flagged(req->bio, BIO_DONTFREE))
-		return false;
-
 	while ((bio = req->bio) != NULL) {
 		int nbytes;
 

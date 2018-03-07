@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -259,20 +259,9 @@ int spmi_add_device(struct spmi_device *spmidev)
 		return id;
 	}
 
-#if defined(CONFIG_ZTEMT_HW_VERSION) ||defined( CONFIG_NX503A_ZTEMT_DEVICE_INFO)
-	if(strncmp(spmidev->name,"qpnp-ztemt_hw_version",strlen("qpnp-ztemt_hw_version"))==0)
-	{
-	   dev_set_name(dev, "%s", spmidev->name);
-    }else{	
-	   /* Set the device name */
-	   spmidev->id = id;
-           dev_set_name(dev, "%s-%d", spmidev->name, spmidev->id);
-	}
-#else
 	/* Set the device name */
 	spmidev->id = id;
 	dev_set_name(dev, "%s-%d", spmidev->name, spmidev->id);
-#endif
 
 	/* Device may be bound to an active driver when this returns */
 	rc = device_add(dev);

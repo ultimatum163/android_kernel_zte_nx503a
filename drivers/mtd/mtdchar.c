@@ -357,7 +357,9 @@ static ssize_t mtdchar_write(struct file *file, const char __user *buf, size_t c
 } /* mtdchar_write */
 
 /*======================================================================
+
     IOCTL calls for getting device parameters.
+
 ======================================================================*/
 static void mtdchar_erase_callback (struct erase_info *instr)
 {
@@ -727,6 +729,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 			/*
 			  FIXME: Allow INTERRUPTIBLE. Which means
 			  not having the wait_queue head on the stack.
+
 			  If the wq_head is on the stack, and we
 			  leave because we got interrupted, then the
 			  wq_head is no longer there when the
@@ -1211,7 +1214,6 @@ static struct file_system_type mtd_inodefs_type = {
        .mount = mtd_inodefs_mount,
        .kill_sb = kill_anon_super,
 };
-MODULE_ALIAS_FS("mtd_inodefs");
 
 static int __init init_mtdchar(void)
 {

@@ -26,7 +26,6 @@
 #include <linux/capability.h>
 #include <linux/slab.h>
 #include <linux/err.h>
-#include <linux/bio.h>
 
 struct linux_binprm;
 struct cred;
@@ -145,6 +144,7 @@ struct request_sock;
 #define LSM_UNSAFE_SHARE	1
 #define LSM_UNSAFE_PTRACE	2
 #define LSM_UNSAFE_PTRACE_CAP	4
+#define LSM_UNSAFE_NO_NEW_PRIVS	8
 
 #ifdef CONFIG_MMU
 extern int mmap_min_addr_handler(struct ctl_table *table, int write,
@@ -694,12 +694,6 @@ static inline void security_free_mnt_opts(struct security_mnt_opts *opts)
  *	userspace to load a kernel module with the given name.
  *	@kmod_name name of the module requested by the kernel
  *	Return 0 if successful.
- * @kernel_module_from_file:
- *	Load a kernel module from userspace.
- *	@file contains the file structure pointing to the file containing
- *	the kernel module to load. If the module is being loaded from a blob,
- *	this argument will be NULL.
- *	Return 0 if permission is granted.
  * @task_fix_setuid:
  *	Update the module's state after setting one or more of the user
  *	identity attributes of the current process.  The @flags parameter
@@ -1460,8 +1454,6 @@ struct security_operations {
 				    void **value, size_t *len);
 	int (*inode_create) (struct inode *dir,
 			     struct dentry *dentry, umode_t mode);
-	int (*inode_post_create) (struct inode *dir,
-				  struct dentry *dentry, umode_t mode);
 	int (*inode_link) (struct dentry *old_dentry,
 			   struct inode *dir, struct dentry *new_dentry);
 	int (*inode_unlink) (struct inode *dir, struct dentry *dentry);
@@ -1512,8 +1504,6 @@ struct security_operations {
 				    struct fown_struct *fown, int sig);
 	int (*file_receive) (struct file *file);
 	int (*dentry_open) (struct file *file, const struct cred *cred);
-	int (*file_close) (struct file *file);
-	bool (*allow_merge_bio)(struct bio *bio1, struct bio *bio2);
 
 	int (*task_create) (unsigned long clone_flags);
 	void (*task_free) (struct task_struct *task);
@@ -1525,7 +1515,6 @@ struct security_operations {
 	int (*kernel_act_as)(struct cred *new, u32 secid);
 	int (*kernel_create_files_as)(struct cred *new, struct inode *inode);
 	int (*kernel_module_request)(char *kmod_name);
-	int (*kernel_module_from_file)(struct file *file);
 	int (*task_fix_setuid) (struct cred *new, const struct cred *old,
 				int flags);
 	int (*task_setpgid) (struct task_struct *p, pid_t pgid);
@@ -1734,9 +1723,6 @@ int security_old_inode_init_security(struct inode *inode, struct inode *dir,
 				     const struct qstr *qstr, char **name,
 				     void **value, size_t *len);
 int security_inode_create(struct inode *dir, struct dentry *dentry, umode_t mode);
-int security_inode_post_create(struct inode *dir, struct dentry *dentry,
-			       umode_t mode);
-
 int security_inode_link(struct dentry *old_dentry, struct inode *dir,
 			 struct dentry *new_dentry);
 int security_inode_unlink(struct inode *dir, struct dentry *dentry);
@@ -1781,9 +1767,6 @@ int security_file_send_sigiotask(struct task_struct *tsk,
 				 struct fown_struct *fown, int sig);
 int security_file_receive(struct file *file);
 int security_dentry_open(struct file *file, const struct cred *cred);
-int security_file_close(struct file *file);
-bool security_allow_merge_bio(struct bio *bio1, struct bio *bio2);
-
 int security_task_create(unsigned long clone_flags);
 void security_task_free(struct task_struct *task);
 int security_cred_alloc_blank(struct cred *cred, gfp_t gfp);
@@ -1793,7 +1776,6 @@ void security_transfer_creds(struct cred *new, const struct cred *old);
 int security_kernel_act_as(struct cred *new, u32 secid);
 int security_kernel_create_files_as(struct cred *new, struct inode *inode);
 int security_kernel_module_request(char *kmod_name);
-int security_kernel_module_from_file(struct file *file);
 int security_task_fix_setuid(struct cred *new, const struct cred *old,
 			     int flags);
 int security_task_setpgid(struct task_struct *p, pid_t pgid);
@@ -2079,13 +2061,6 @@ static inline int security_inode_create(struct inode *dir,
 	return 0;
 }
 
-static inline int security_inode_post_create(struct inode *dir,
-					     struct dentry *dentry,
-					     umode_t mode)
-{
-	return 0;
-}
-
 static inline int security_inode_link(struct dentry *old_dentry,
 				       struct inode *dir,
 				       struct dentry *new_dentry)
@@ -2288,16 +2263,6 @@ static inline int security_dentry_open(struct file *file,
 	return 0;
 }
 
-static inline int security_file_close(struct file *file)
-{
-	return 0;
-}
-
-static inline bool security_allow_merge_bio(struct bio *bio1, struct bio *bio2)
-{
-	return true; /* The default is to allow it for performance */
-}
-
 static inline int security_task_create(unsigned long clone_flags)
 {
 	return 0;
@@ -2338,11 +2303,6 @@ static inline int security_kernel_create_files_as(struct cred *cred,
 }
 
 static inline int security_kernel_module_request(char *kmod_name)
-{
-	return 0;
-}
-
-static inline int security_kernel_module_from_file(struct file *file)
 {
 	return 0;
 }
@@ -2428,7 +2388,7 @@ static inline int security_task_prctl(int option, unsigned long arg2,
 				      unsigned long arg4,
 				      unsigned long arg5)
 {
-	return cap_task_prctl(option, arg2, arg3, arg3, arg5);
+	return cap_task_prctl(option, arg2, arg3, arg4, arg5);
 }
 
 static inline void security_task_to_inode(struct task_struct *p, struct inode *inode)

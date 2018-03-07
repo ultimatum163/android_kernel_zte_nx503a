@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1252,7 +1252,7 @@ static int msm_smem_probe(struct platform_device *pdev)
 		goto free_smem_areas;
 	}
 
-	ramdump_segments_tmp = kmalloc_array(num_smem_areas,
+	ramdump_segments_tmp = kcalloc(num_smem_areas,
 			sizeof(struct ramdump_segment), GFP_KERNEL);
 	if (!ramdump_segments_tmp) {
 		LOG_ERR("%s: ramdump segment kmalloc failed\n", __func__);
@@ -1370,7 +1370,7 @@ int __init msm_smem_init(void)
 
 	registered = true;
 
-	smem_ipc_log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smem", 0);
+	smem_ipc_log_ctx = ipc_log_context_create(NUM_LOG_PAGES, "smem");
 	if (!smem_ipc_log_ctx) {
 		pr_err("%s: unable to create logging context\n", __func__);
 		msm_smem_debug_mask = 0;

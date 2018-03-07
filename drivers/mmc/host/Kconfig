@@ -297,6 +297,16 @@ config MMC_ATMELMCI
 
 endchoice
 
+config MMC_ATMELMCI_DMA
+	bool "Atmel MCI DMA support"
+	depends on MMC_ATMELMCI && (AVR32 || ARCH_AT91SAM9G45) && DMA_ENGINE
+	help
+	  Say Y here to have the Atmel MCI driver use a DMA engine to
+	  do data transfers and thus increase the throughput and
+	  reduce the CPU utilization.
+
+	  If unsure, say N.
+
 config MMC_IMX
 	tristate "Motorola i.MX Multimedia Card Interface support"
 	depends on ARCH_MX1
@@ -314,6 +324,16 @@ config MMC_MSM
 	  This provides support for the SD/MMC cell found in the
 	  MSM and QSD SOCs from Qualcomm. The controller also has
 	  support for SDIO devices.
+
+config MMC_MSM_RAW
+	bool "Qualcomm SDCC Controller Support (raw mode)"
+	depends on ARCH_MSM && APANIC_MMC
+	help
+	  This provides support for dumping the kernel log buffer to a raw
+	  MMC partition in the event of a kernel panic using the SD/MMC cell
+	  found in the MSM and QSD SOCs from Qualcomm.
+
+	  If unsure, say N.
 
 config MMC_MXC
 	tristate "Freescale i.MX21/27/31 Multimedia Card Interface support"
